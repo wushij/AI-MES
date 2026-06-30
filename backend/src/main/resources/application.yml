@@ -1,0 +1,61 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: ai-mes-backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/AI-MES?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 5s
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+  # 数据库由项目根目录 sql/ 手动维护（init.sql / migrations），启动时不自动执行 SQL
+  sql:
+    init:
+      mode: never
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    # log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+sa-token:
+  token-name: Authorization
+  token-prefix: Bearer
+  timeout: 2592000
+  active-timeout: -1
+  is-concurrent: true
+  is-share: true
+  is-read-header: true
+  is-read-cookie: false
+  is-read-body: false
+  is-log: true
+
+knife4j:
+  enable: true
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: false
+
+coze:
+  api-token: ${COZE_API_TOKEN:}
+  bot-id: ${COZE_BOT_ID:}
+  api-url: ${COZE_API_URL:https://api.coze.cn/v3}
+  workflow-id: ${COZE_WORKFLOW_ID:}
+  chat-poll-timeout-seconds: ${COZE_CHAT_POLL_TIMEOUT_SECONDS:90}

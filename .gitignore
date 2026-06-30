@@ -1,0 +1,75 @@
+# --- 依赖与构建产物 ---
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+target/
+**/target/
+*.tsbuildinfo
+
+# --- 环境变量与本地配置（勿提交密钥）---
+.env
+.env.local
+.env.*.local
+frontend/.env
+backend/src/main/resources/application-local.yml
+backend/src/main/resources/application-*.local.yml
+
+# --- 日志与运行时 ---
+*.log
+logs/
+*.pid
+*.seed
+hs_err_pid*
+replay_pid*
+
+# --- IDE / 编辑器 ---
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# --- 操作系统 ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# --- 测试与覆盖率 ---
+coverage/
+.nyc_output/
+*.lcov
+
+# --- 前端工具缓存 ---
+.vite/
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# --- Java / Maven ---
+*.class
+*.jar
+!**/gradle-wrapper.jar
+*.war
+*.ear
+.mvn/wrapper/maven-wrapper.jar
+dependency-reduced-pom.xml
+
+# --- 临时与备份 ---
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+~$*
+
+# docs/ 目录纳入版本管理，不忽略

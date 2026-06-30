@@ -1,0 +1,913 @@
+# AI-MES 智能生产车间管理平台 — 系统设计文档
+
+> **课程选题**：工业应用软件设计 · 题目二「工业生产车间智能管理智能体」  
+> **文档版本**：v1.1  
+> **技术栈**：Spring Boot 3 + Vue3 + MySQL + Coze 智能体
+
+---
+
+## 1 项目概述
+
+### 1.1 项目名称
+
+**AI-MES 智能生产车间管理平台（AI Manufacturing Execution System）**
+
+### 1.2 项目背景
+
+随着制造业数字化和智能化的发展，传统生产车间在生产计划管理、工单管理、设备管理以及生产数据分析等方面仍存在信息孤岛、人工统计效率低、异常处理不及时等问题。
+
+近年来，大语言模型（LLM）和人工智能技术快速发展，为工业生产管理提供了新的解决方案。通过将 AI 与 MES（Manufacturing Execution System）相结合，可以实现智能问答、智能排产、生产数据分析、异常诊断等功能，提高企业生产效率和管理水平。
+
+因此，本项目设计并实现一套基于 Spring Boot、Vue3 和 **Coze（扣子）智能体** 的智能生产车间管理平台，实现生产全过程数字化管理，并结合 AI 智能助手辅助企业进行生产决策。
+
+### 1.3 项目目标
+
+本项目旨在构建一套现代化、智能化的生产车间管理系统，实现以下目标：
+
+* 实现生产计划数字化管理
+* 实现生产工单全生命周期管理
+* 实现车间班组协同管理
+* 实现设备运行状态与工序进度管理
+* 实现异常停机与缺料预警统一管理
+* 实现生产数据可视化分析
+* **接入 Coze 智能客服**，实现生产进度查询、异常问答、SOP 咨询、班组任务说明
+* **接入 Coze 智能排产助手（推荐）**，实现订单优先级、瓶颈分析、任务派发建议
+* 提高企业生产效率，降低人工管理成本
+
+### 1.4 建设意义
+
+#### （1）提高生产效率
+
+通过工单数字化管理和生产计划自动分配，减少人工协调时间，提高生产效率。
+
+#### （2）提升管理能力
+
+实现生产全过程可追踪、可统计、可分析，提高管理人员决策效率。
+
+#### （3）降低运营成本
+
+减少纸质记录和人工统计，提高数据准确性，降低管理成本。
+
+#### （4）智能辅助决策
+
+利用 Coze 智能体分析生产数据并回答业务问题，为管理人员提供智能建议，实现智能制造。
+
+### 1.5 项目特点
+
+* 前后端分离架构
+* 企业级权限管理（Sa-Token）
+* 模块化设计，易于扩展
+* 响应式 Web 页面
+* **Coze 智能体深度集成**（客服必选 + 排产推荐）
+* 数据可视化分析（ECharts）
+* 完整业务闭环：前端 → 后端 → Coze → 回显
+* 支持 Nginx 反向代理部署
+
+### 1.6 与课程考核要求对照
+
+| 考试要求 | 本系统对应模块 |
+|----------|----------------|
+| 生产计划 | 生产计划管理 |
+| 工序状态 | 生产进度管理、工序流转 |
+| 班组任务 | 班组管理、工单管理 |
+| 异常停机 | 异常事件管理 |
+| 缺料预警 | 物料管理、缺料预警 |
+| 生产看板 | 首页数据驾驶舱 |
+| 任务列表 | 工单管理 |
+| 异常反馈表单 | 异常事件管理 |
+| Coze 智能客服（必选） | AI 智能客服 |
+| 智能排产（推荐） | AI 智能排产 |
+
+---
+
+## 2 需求分析
+
+### 2.1 业务场景
+
+某离散制造企业的装配车间，每日需完成多条产线的生产任务。车间主管负责制定计划与分配工单，各班组按工序领取任务并反馈进度；生产过程中可能出现设备停机、物料短缺等异常，员工需及时上报并由主管处理。系统需支持通过 AI 客服查询进度与操作规程，并通过智能排产辅助主管决策。
+
+### 2.2 用户角色
+
+| 角色 | 职责 | 典型操作 |
+|------|------|----------|
+| 管理员 | 系统配置、用户管理、权限分配、平台维护 | 用户 CRUD、角色授权、Coze 配置 |
+| 车间主管 | 计划制定、工单分配、异常处理、生产监控 | 创建计划、派单、处理异常、查看排产建议 |
+| 普通员工 | 查看任务、反馈进度、上报异常 | 领取工单、更新工序、提交异常表单、使用 AI 客服 |
+
+### 2.3 用例说明
+
+#### UC-01 制定生产计划（车间主管）
+
+主管创建生产计划，填写产品、数量、计划日期，下发后系统自动或手动生成工单。
+
+#### UC-02 班组领取与执行任务（普通员工）
+
+员工在任务列表中查看本班组待办工单，领取后开始生产，按工序更新进度。
+
+#### UC-03 异常上报与处理（员工 / 主管）
+
+员工填写异常反馈表单（停机 / 缺料 / 质量），主管查看并处理，工单状态同步变更。
+
+#### UC-04 缺料预警（系统自动 / 主管）
+
+物料库存低于安全库存时触发预警，在看板与消息通知中展示，必要时阻断相关工单。
+
+#### UC-05 AI 智能客服（全部角色）
+
+用户通过客服入口提问，后端转发 Coze 智能体，返回进度、SOP、异常处理建议等。
+
+#### UC-06 AI 智能排产（车间主管，推荐）
+
+主管提交当前工单队列与资源约束，Coze 排产 Workflow 返回优先级与派发建议。
+
+### 2.4 功能需求
+
+#### 2.4.1 必选功能
+
+| 编号 | 功能 | 说明 |
+|------|------|------|
+| F-01 | 登录认证 | 账号密码登录，基于角色的菜单与接口权限 |
+| F-02 | 首页数据驾驶舱 | 计划完成率、工单统计、异常概览、缺料预警数 |
+| F-03 | 生产计划管理 | 计划 CRUD、下发、关联工单 |
+| F-04 | 工单管理 | 工单生成、分配、领取、状态流转、任务列表 |
+| F-05 | 班组管理 | 班组与成员维护、任务归属 |
+| F-06 | 工序进度管理 | 工序定义、进度更新、状态跟踪 |
+| F-07 | 异常事件管理 | 异常上报表单、处理记录、闭环 |
+| F-08 | 物料与缺料预警 | 物料库存、安全库存、预警列表 |
+| F-09 | AI 智能客服 | Coze 对话，支持进度 / 异常 / SOP / 班组任务问答 |
+| F-10 | Coze API 代理 | 后端封装 Coze 接口，密钥不暴露给前端 |
+
+#### 2.4.2 推荐扩展功能
+
+| 编号 | 功能 | 说明 |
+|------|------|------|
+| F-11 | AI 智能排产 | 订单优先级、瓶颈分析、派发建议 |
+| F-12 | 设备管理 | 设备档案、运行状态、关联工序 |
+| F-13 | 人员管理 | 员工档案、班组归属 |
+| F-14 | 消息通知 | 异常、缺料、任务提醒 |
+| F-15 | 系统管理 | 用户、角色、操作日志 |
+
+### 2.5 非功能需求
+
+| 类别 | 要求 |
+|------|------|
+| 性能 | 常规页面响应 < 2s；Coze 对话超时 30s 内给出友好提示 |
+| 安全 | Coze Token 仅存服务端；接口鉴权；敏感操作记录日志 |
+| 可用性 | 界面清晰，核心流程 3 步内可达；客服入口全局可见 |
+| 可维护性 | 前后端分离，模块边界清晰，接口文档（Knife4j）完整 |
+| 可复现性 | 提供 README、`.env.example`、演示数据，支持 Nginx 部署 |
+
+### 2.6 系统总体流程
+
+```
+登录系统
+    ↓
+首页驾驶舱（生产看板）
+    ↓
+制定生产计划 → 生成生产工单
+    ↓
+班组领取任务 → 开始生产
+    ↓
+实时反馈工序进度
+    ↓
+（并行）缺料检测 → 触发预警
+    ↓
+异常上报 → 主管处理
+    ↓
+生产完成
+    ↓
+AI 分析 / 统计报表
+    ↓
+（随时）AI 智能客服问答
+```
+
+---
+
+## 3 系统架构设计
+
+### 3.1 总体架构
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        前端层（Vue3）                          │
+│  驾驶舱 │ 计划 │ 工单 │ 工序 │ 异常表单 │ 物料预警 │ AI 客服   │
+└────────────────────────────┬─────────────────────────────────┘
+                             │ HTTP / REST（Axios）
+┌────────────────────────────▼─────────────────────────────────┐
+│                     后端层（Spring Boot 3）                   │
+│  认证授权 │ 业务 Service │ Coze 代理 │ 异常处理 │ 操作日志     │
+└──────────────┬─────────────────────────────┬─────────────────┘
+               │                             │
+        ┌──────▼──────┐               ┌──────▼──────┐
+        │ MySQL       │               │ Redis       │
+        │ 业务持久化   │               │ 缓存/会话    │
+        └─────────────┘               └─────────────┘
+                             │
+                      ┌──────▼──────┐
+                      │ Coze 平台    │
+                      │ Bot / Workflow│
+                      └─────────────┘
+```
+
+### 3.2 技术选型
+
+#### 前端技术
+
+* Vue3、TypeScript、Vite
+* Element Plus、Pinia、Vue Router
+* Axios、ECharts
+
+#### 后端技术
+
+* Spring Boot 3、MyBatis-Plus
+* MySQL、Redis
+* Sa-Token（认证授权）
+* Knife4j（接口文档）
+* Maven
+
+#### AI 技术（课程考核核心）
+
+| 技术 | 用途 | 是否必选 |
+|------|------|----------|
+| **Coze 智能体（Bot API）** | 生产智能客服：进度查询、异常问答、SOP、班组任务 | **必选** |
+| **Coze Workflow API** | 智能排产：优先级、瓶颈分析、派发建议 | 推荐 |
+| OpenAI Compatible API / DeepSeek | 开发调试或本地 LLM 备选 | 可选 |
+
+> **说明**：课程考核要求至少接入 1 个 Coze 智能体并完成前后端 API 对接。OpenAI / DeepSeek 仅作开发期辅助，不能替代 Coze 作为交付方案。
+
+#### 部署技术
+
+* Nginx（反向代理、静态资源托管）
+
+### 3.3 Coze 对接架构（考核重点）
+
+```
+用户输入问题
+    ↓
+前端 POST /api/coze/chat
+    ↓
+后端 CozeService
+    ├── 读取本地业务数据（工单、异常、物料等）作为上下文
+    ├── 组装请求参数（bot_id、user_id、conversation_id、message）
+    └── 调用 Coze API（COZE_API_TOKEN 仅存 .env / 服务端配置）
+    ↓
+Coze 智能体处理并返回
+    ↓
+后端解析响应，写入 ai_chat_log
+    ↓
+前端展示回复（文本 + 可选结构化卡片）
+```
+
+**排产 Workflow 闭环（推荐）：**
+
+```
+前端 POST /api/coze/scheduling { planDate?, workOrderIds? }
+    ↓
+后端聚合工单队列、设备负载、物料状态、交期
+    ↓
+调用 Coze Workflow API
+    ↓
+返回 JSON：优先级列表、瓶颈工序、派发建议
+    ↓
+前端表格 / 图表展示，主管可采纳并更新工单
+```
+
+### 3.4 项目目录结构（规划）
+
+```
+ai-mes/
+├── backend/                    # Spring Boot 后端
+│   ├── src/main/java/
+│   │   ├── controller/         # REST 控制器
+│   │   ├── service/            # 业务逻辑
+│   │   ├── service/coze/       # Coze 代理服务
+│   │   ├── mapper/             # MyBatis-Plus Mapper
+│   │   ├── entity/             # 实体类
+│   │   ├── dto/                # 请求/响应 DTO
+│   │   └── config/             # 安全配置、Coze 配置
+│   ├── src/main/resources/
+│   │   ├── application.yml
+│   │   └── db/migration/       # 数据库脚本
+│   └── pom.xml
+├── frontend/                   # Vue3 前端
+│   ├── src/
+│   │   ├── views/              # 页面
+│   │   ├── components/         # 公共组件（含 AiChat 客服组件）
+│   │   ├── api/                # 接口封装
+│   │   ├── stores/             # Pinia 状态
+│   │   └── router/             # 路由
+│   └── package.json
+├── deploy/
+│   └── nginx.conf              # Nginx 配置
+├── .env.example
+└── README.md
+```
+
+---
+
+## 4 功能模块设计
+
+### 4.1 模块总览
+
+| 模块 | 优先级 | 说明 |
+|------|--------|------|
+| 登录认证 | 必选 | 用户登录、Token 鉴权、角色路由 |
+| 首页数据驾驶舱 | 必选 | 生产看板、KPI、图表、预警摘要 |
+| 生产计划管理 | 必选 | 计划 CRUD、下发 |
+| 工单管理 | 必选 | 任务列表、分配、领取、完成 |
+| 班组管理 | 必选 | 班组与成员、任务归属 |
+| 工序进度管理 | 必选 | 工序定义、进度更新 |
+| 异常事件管理 | 必选 | 异常反馈表单、处理闭环 |
+| 物料与缺料预警 | 必选 | 库存管理、安全库存、预警 |
+| AI 智能客服 | 必选 | Coze 对话入口 |
+| AI 智能排产 | 推荐 | Coze Workflow 排产建议 |
+| 设备管理 | 扩展 | 设备档案、状态监控 |
+| 人员管理 | 扩展 | 员工信息维护 |
+| 消息通知 | 扩展 | 站内消息、预警推送 |
+| 系统管理 | 扩展 | 用户、角色、日志 |
+
+### 4.2 首页数据驾驶舱
+
+**功能描述**：展示车间生产全局视图，对应考试「生产看板」要求。
+
+**展示内容**：
+* 今日计划数 / 完成率 / 在制工单数
+* 各班组任务完成进度（柱状图或进度条）
+* 异常事件列表（未处理优先）
+* 缺料预警列表（物料名称、当前库存、缺口）
+* 快捷入口：新建计划、异常上报、AI 客服
+
+### 4.3 工单与工序管理
+
+**工单状态流转**：
+
+```
+待分配 → 待领取 → 生产中 → 异常处理中 → 已完成
+                      ↓
+                   已取消
+```
+
+**工序状态流转**：
+
+```
+待开始 → 进行中 → 已暂停（异常） → 已完成
+```
+
+**核心操作**：
+* 主管：由计划生成工单、指定班组、调整优先级
+* 员工：领取工单、按工序更新进度、标记完成
+* 系统：异常上报时自动暂停相关工序
+
+### 4.4 异常事件管理
+
+**异常类型**：设备停机、缺料、质量异常、其他
+
+**表单字段**：异常类型、关联工单/设备、发生时间、描述、附件（可选）、上报人
+
+**处理流程**：待处理 → 处理中 → 已关闭；主管填写处理措施与结果
+
+### 4.5 物料与缺料预警
+
+**功能描述**：对应考试「缺料预警」核心范围。
+
+**业务规则**：
+* 每种物料维护：编码、名称、当前库存、安全库存、单位
+* 当 `当前库存 < 安全库存` 时，状态变为「预警」
+* 看板与消息模块展示预警；AI 客服可回答「XX 物料还够吗？」
+* 缺料异常可与物料预警联动，自动创建异常事件
+
+### 4.6 AI 智能客服（Coze，必选）
+
+**入口形式**：独立页面 `/ai-chat` + 全局右下角浮窗按钮
+
+**能力范围**：
+* 生产进度查询（结合后端工单数据）
+* 异常处理问答（结合异常处理手册知识库）
+* 操作规程 SOP 咨询
+* 班组任务说明（今日待办、负责人）
+
+**后端职责**：
+* 封装 Coze Bot API，管理 conversation_id 实现多轮对话
+* 可选：将工单号、班组 ID 等业务上下文注入 Prompt
+* 记录对话日志，便于报告截图与答辩
+
+### 4.7 AI 智能排产（Coze Workflow，推荐）
+
+**使用角色**：车间主管
+
+**输入**：计划日期、待排产工单列表、设备/产线负载、物料可用性、交期
+
+**输出**：
+* 订单优先级排序及理由
+* 瓶颈工序 / 产线分析
+* 任务派发建议（班组、时间段）
+
+---
+
+## 5 Coze 智能体设计
+
+### 5.1 智能体一：生产智能客服（必选）
+
+| 配置项 | 内容 |
+|--------|------|
+| 平台 | Coze（扣子） |
+| 类型 | Bot（对话型） |
+| 角色定位 | 车间生产助手，服务员工与主管 |
+| 知识库 | 操作规程 SOP、异常处理手册、常见问题 FAQ、工单状态说明 |
+| 系统 Prompt 要点 | 仅回答车间生产相关问题；无法确认的数据引导用户查看系统看板；异常处理给出步骤化建议 |
+
+**Prompt 示例（节选）**：
+
+```
+你是「AI-MES 车间生产智能助手」，服务于制造车间员工与主管。
+你可以帮助用户：
+1. 查询生产工单进度与工序状态
+2. 解答设备停机、缺料、质量等异常的处理步骤
+3. 提供标准操作规程（SOP）说明
+4. 说明班组今日任务与分工
+
+回答要求：简洁专业，步骤清晰；涉及具体工单数据时，结合系统提供的上下文回答；
+无法获取实时数据时，明确告知用户到「工单管理」或「驾驶舱」查看。
+```
+
+**环境变量**：
+
+```env
+COZE_API_TOKEN=pat_xxxxxxxx
+COZE_BOT_ID=7617757168968417307
+COZE_API_URL=https://api.coze.cn/v3
+```
+
+### 5.2 智能体二：智能排产助手（推荐）
+
+| 配置项 | 内容 |
+|--------|------|
+| 类型 | Workflow |
+| 角色定位 | 生产计划分析师 |
+| 输入变量 | work_orders_json, material_status, line_capacity, deadline |
+| 输出格式 | JSON：priorities[], bottlenecks[], dispatch_suggestions[] |
+
+**典型输出示例**：
+
+```json
+{
+  "priorities": [
+    { "workOrderNo": "WO-2024-003", "rank": 1, "reason": "交期最近且物料齐套" }
+  ],
+  "bottlenecks": [
+    { "process": "装配工序", "line": "产线A", "loadRate": "95%" }
+  ],
+  "dispatchSuggestions": [
+    { "workOrderNo": "WO-2024-001", "team": "甲班", "suggestedStart": "08:00" }
+  ]
+}
+```
+
+### 5.3 对话场景示例
+
+| 用户提问 | 预期回答方向 |
+|----------|--------------|
+| WO-2024-001 进度多少？ | 结合后端工单数据，返回完成百分比与当前工序 |
+| 设备突然停机怎么办？ | 引用异常处理手册：停机确认→上报→排查→恢复 |
+| 装配工序 SOP 是什么？ | 从知识库返回标准操作步骤 |
+| 甲班今天有哪些任务？ | 列出该班组待办 / 在制工单 |
+
+---
+
+## 6 数据库设计
+
+> **数据库名称**：`AI-MES`  
+> **连接账号**：`root` / `root`  
+> **Redis**：`localhost:6379`，无密码
+
+### 6.1 ER 关系概述
+
+```
+用户(sys_user) ──< 工单(prod_work_order) >── 生产计划(prod_plan)
+                      │
+                      ├── 工序记录(prod_process_record)
+                      ├── 异常事件(exc_event)
+                      └── 班组(prod_team)
+
+物料(mat_material) ──< 缺料预警(mat_alert)
+设备(dev_device) ── 工序 / 异常（可选关联）
+AI 对话(ai_chat_log) ── 用户
+```
+
+### 6.2 核心数据表
+
+#### sys_user（用户表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT PK | 主键 |
+| username | VARCHAR(50) | 登录名 |
+| password | VARCHAR(100) | 加密密码 |
+| real_name | VARCHAR(50) | 姓名 |
+| role | VARCHAR(20) | admin / supervisor / worker |
+| team_id | BIGINT | 所属班组（员工） |
+| status | TINYINT | 0 禁用 1 正常 |
+| create_time | DATETIME | 创建时间 |
+
+#### prod_team（班组表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT PK | 主键 |
+| team_code | VARCHAR(20) | 班组编号 |
+| team_name | VARCHAR(50) | 班组名称 |
+| leader_id | BIGINT | 班组长用户 ID |
+| member_count | INT | 成员数 |
+
+#### prod_plan（生产计划表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT PK | 主键 |
+| plan_no | VARCHAR(30) | 计划编号 |
+| product_name | VARCHAR(100) | 产品名称 |
+| plan_qty | INT | 计划数量 |
+| plan_date | DATE | 计划日期 |
+| status | VARCHAR(20) | draft / released / completed |
+| created_by | BIGINT | 创建人 |
+
+#### prod_work_order（生产工单表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT PK | 主键 |
+| order_no | VARCHAR(30) | 工单编号 |
+| plan_id | BIGINT FK | 关联计划 |
+| team_id | BIGINT FK | 负责班组 |
+| process_name | VARCHAR(50) | 当前工序 |
+| progress | INT | 完成进度 0-100 |
+| status | VARCHAR(20) | pending / assigned / producing / exception / done |
+| priority | INT | 优先级 |
+| deadline | DATETIME | 交期 |
+
+#### prod_process_record（工序记录表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT PK | 主键 |
+| work_order_id | BIGINT FK | 工单 ID |
+| process_name | VARCHAR(50) | 工序名称 |
+| seq_no | INT | 顺序号 |
+| status | VARCHAR(20) | waiting / running / paused / done |
+| start_time | DATETIME | 开始时间 |
+| end_time | DATETIME | 结束时间 |
+
+#### exc_event（异常事件表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT PK | 主键 |
+| event_no | VARCHAR(30) | 异常编号 |
+| event_type | VARCHAR(20) | shutdown / shortage / quality / other |
+| work_order_id | BIGINT | 关联工单 |
+| device_id | BIGINT | 关联设备（可选） |
+| description | TEXT | 异常描述 |
+| status | VARCHAR(20) | open / processing / closed |
+| reporter_id | BIGINT | 上报人 |
+| handler_id | BIGINT | 处理人 |
+| create_time | DATETIME | 上报时间 |
+
+#### mat_material（物料表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT PK | 主键 |
+| material_code | VARCHAR(30) | 物料编码 |
+| material_name | VARCHAR(100) | 物料名称 |
+| stock_qty | DECIMAL(10,2) | 当前库存 |
+| safety_stock | DECIMAL(10,2) | 安全库存 |
+| unit | VARCHAR(10) | 单位 |
+| alert_status | VARCHAR(10) | normal / warning |
+
+#### dev_device（设备表，扩展）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT PK | 主键 |
+| device_code | VARCHAR(30) | 设备编号 |
+| device_name | VARCHAR(100) | 设备名称 |
+| status | VARCHAR(20) | running / idle / fault / maintenance |
+| line_id | BIGINT | 所属产线 |
+
+#### ai_chat_log（AI 对话记录表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT PK | 主键 |
+| user_id | BIGINT | 用户 ID |
+| session_id | VARCHAR(64) | 会话 ID |
+| user_message | TEXT | 用户消息 |
+| ai_response | TEXT | AI 回复 |
+| bot_id | VARCHAR(32) | Coze Bot ID |
+| create_time | DATETIME | 对话时间 |
+
+---
+
+## 7 接口设计
+
+> 统一前缀 `/api`，鉴权 Header：`Authorization: Bearer {token}`  
+> 接口文档由 Knife4j 自动生成，访问 `/doc.html`
+
+### 7.1 认证模块
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/auth/login | 登录，返回 token |
+| POST | /api/auth/logout | 退出 |
+| GET | /api/auth/info | 当前用户信息 |
+
+### 7.2 驾驶舱模块
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/dashboard/stats | KPI 统计（计划、工单、异常、预警） |
+| GET | /api/dashboard/progress | 各班组进度 |
+| GET | /api/dashboard/alerts | 最新异常与缺料预警 |
+
+### 7.3 生产计划模块
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/plans | 计划列表（分页） |
+| POST | /api/plans | 新建计划 |
+| PUT | /api/plans/{id} | 更新计划 |
+| POST | /api/plans/{id}/release | 下发计划并生成工单 |
+
+### 7.4 工单模块
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/work-orders | 工单列表（支持状态、班组筛选） |
+| GET | /api/work-orders/{id} | 工单详情 |
+| POST | /api/work-orders/{id}/assign | 分配班组 |
+| POST | /api/work-orders/{id}/claim | 班组领取 |
+| PUT | /api/work-orders/{id}/progress | 更新进度 / 工序 |
+| POST | /api/work-orders/{id}/complete | 标记完成 |
+
+### 7.5 异常模块
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/exceptions | 异常列表 |
+| POST | /api/exceptions | 上报异常（表单提交） |
+| PUT | /api/exceptions/{id}/handle | 主管处理异常 |
+
+### 7.6 物料与预警模块
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/materials | 物料列表 |
+| PUT | /api/materials/{id} | 更新库存 |
+| GET | /api/materials/alerts | 缺料预警列表 |
+
+### 7.7 Coze AI 模块（考核核心）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/coze/chat | 智能客服对话（**必选**） |
+| GET | /api/coze/chat/history | 对话历史 |
+| POST | /api/coze/scheduling | 智能排产 Workflow（推荐） |
+| GET | /api/coze/health | Coze 连通性检测 |
+
+**POST /api/coze/chat 请求体**：
+
+```json
+{
+  "message": "查询工单 WO-2024-001 的进度",
+  "sessionId": "sess_abc123"
+}
+```
+
+**响应体**：
+
+```json
+{
+  "code": 200,
+  "data": {
+    "reply": "工单 WO-2024-001 当前进度 65%，处于装配工序，负责班组：甲班。",
+    "sessionId": "sess_abc123"
+  }
+}
+```
+
+---
+
+## 8 前端页面设计
+
+### 8.1 页面清单
+
+| 页面 | 路由 | 角色 | 对应考试要求 |
+|------|------|------|--------------|
+| 登录页 | /login | 全部 | — |
+| 首页驾驶舱 | /dashboard | 全部 | 生产看板 |
+| 生产计划 | /plans | 主管 | 生产计划 |
+| 工单管理 | /work-orders | 主管/员工 | 任务列表 |
+| 工序进度 | /process | 员工 | 工序状态 |
+| 班组管理 | /teams | 主管 | 班组任务 |
+| 异常管理 | /exceptions | 全部 | 异常反馈表单 |
+| 物料预警 | /materials | 主管 | 缺料预警 |
+| AI 智能客服 | /ai-chat | 全部 | 客服入口 |
+| 智能排产 | /ai-scheduling | 主管 | 推荐扩展 |
+| 系统管理 | /admin | 管理员 | 扩展 |
+
+### 8.2 关键页面说明
+
+#### 首页驾驶舱
+
+* 顶部 KPI 卡片：计划完成率、在制工单、未处理异常、缺料预警数
+* 中部 ECharts：班组进度、近 7 日产量趋势
+* 底部：异常列表 + 缺料预警列表
+* 右下角：AI 客服浮窗入口
+
+#### 工单管理（任务列表）
+
+* 表格：工单号、产品、班组、工序、进度条、状态、交期、操作
+* 筛选：状态、班组、日期
+* 操作：领取、更新进度、查看详情、上报异常
+
+#### 异常反馈表单
+
+* 字段：类型（下拉）、关联工单、设备、描述、提交
+* 提交后跳转异常列表，主管可处理
+
+#### AI 智能客服
+
+* 对话气泡界面、历史记录、快捷问题按钮
+* 示例快捷问题：「今日生产概况」「甲班待办任务」「停机怎么处理？」
+
+---
+
+## 9 部署方案
+
+### 9.1 环境要求
+
+* JDK 17+
+* Node.js 18+（构建前端）
+* MySQL 8.0+
+* Redis 6+
+* Nginx 1.20+
+
+### 9.2 环境变量（.env.example）
+
+```env
+# 数据库 MySQL
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=AI-MES
+DB_USER=root
+DB_PASSWORD=root
+
+# Redis（无密码）
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
+# Coze（必选）
+COZE_API_TOKEN=pat_xxxxxxxx
+COZE_BOT_ID=your_bot_id
+COZE_WORKFLOW_ID=your_workflow_id
+COZE_API_URL=https://api.coze.cn/v3
+
+# 服务端口
+SERVER_PORT=8080
+```
+
+**数据库初始化**：
+
+```sql
+CREATE DATABASE IF NOT EXISTS `AI-MES` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+**Spring Boot 配置示例（application.yml）**：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/AI-MES?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:   # 无密码，留空
+```
+
+### 9.3 构建与启动
+
+**后端**
+
+```bash
+cd backend
+mvn clean package -DskipTests
+java -jar target/ai-mes-backend.jar
+# 默认监听 8080
+```
+
+**前端**
+
+```bash
+cd frontend
+npm install
+npm run build
+# 产物输出至 frontend/dist/
+```
+
+### 9.4 Nginx 部署
+
+Nginx 负责托管前端静态资源，并将 `/api` 请求反向代理到 Spring Boot 后端。
+
+**目录约定**
+
+```
+/var/www/ai-mes/          # 前端 dist 静态文件
+/etc/nginx/conf.d/ai-mes.conf
+/path/to/ai-mes-backend.jar
+```
+
+**Nginx 配置示例（deploy/nginx.conf）**
+
+```nginx
+server {
+    listen 80;
+    server_name localhost;
+
+    # 前端静态资源
+    root /var/www/ai-mes;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 后端 API 反向代理
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 60s;
+    }
+
+    # Knife4j 接口文档（可选）
+    location /doc.html {
+        proxy_pass http://127.0.0.1:8080;
+    }
+}
+```
+
+**部署步骤**
+
+1. 将 `frontend/dist/` 内容复制到 `/var/www/ai-mes/`
+2. 启动后端 JAR，确认 `8080` 端口可用
+3. 将 `deploy/nginx.conf` 放入 Nginx 配置目录并 reload：
+
+```bash
+nginx -t && nginx -s reload
+```
+
+4. 浏览器访问 `http://服务器IP/` 即可使用系统
+
+---
+
+## 10 测试与交付
+
+### 10.1 测试要点
+
+| 测试项 | 验证内容 |
+|--------|----------|
+| 业务闭环 | 计划 → 工单 → 生产 → 异常 → 完成 |
+| Coze 对接 | 前端发消息 → 后端日志有 Coze 请求 → 前端收到回复 |
+| 缺料预警 | 库存低于安全值时看板出现预警 |
+| 权限控制 | 员工无法访问主管专属菜单 |
+| 异常处理 | 上报后工单 / 工序状态正确变更 |
+
+### 10.2 交付清单（课程考核）
+
+| 材料 | 要求 |
+|------|------|
+| 项目源码包 | 完整前后端 + README + .env.example |
+| 课程考试报告 | ≥ 3000 字，含需求、Coze 设计、架构、关键代码、截图 |
+| 演示视频 | 3～5 分钟，展示看板、异常表单、AI 客服完整闭环 |
+| 佐证材料 | Coze 配置截图、API 调用日志、Prompt 选段 |
+
+### 10.3 项目预期成果
+
+完成本项目后，可实现：
+
+* 企业级 Web 管理平台（前后端分离 + 角色权限）
+* **Coze 智能客服**（必选）+ 智能排产（推荐）
+* 生产看板与缺料预警可视化
+* 完整设计文档、接口文档、数据库设计
+* Nginx 反向代理部署
+* 满足《工业应用软件设计》题目二课程考核要求
+
+---
+
+*文档版本 v1.1 | 依据课程试卷题目二要求完善 | 对应项目 AI-MES 智能生产车间管理平台*

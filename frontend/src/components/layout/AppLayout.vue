@@ -1,0 +1,49 @@
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
+import AiChatPanel from '@/components/AiChatPanel.vue'
+import AiFloatBtn from '@/components/AiFloatBtn.vue'
+import AppHeader from './AppHeader.vue'
+import AppSidebar from './AppSidebar.vue'
+import { useAppStore } from '@/stores/app'
+import { useUserStore } from '@/stores/user'
+import '@/assets/styles/layout-shell.css'
+
+const appStore = useAppStore()
+const userStore = useUserStore()
+const { backendUnavailable } = storeToRefs(userStore)
+
+onMounted(() => {
+  void appStore.loadWorkshopSummary()
+})
+</script>
+
+<template>
+  <div class="app-layout">
+    <el-alert
+      v-if="backendUnavailable"
+      type="warning"
+      title="后端服务暂时不可用，请确认后端已启动；部分数据可能无法加载。"
+      show-icon
+      :closable="false"
+      class="app-layout__offline-alert"
+    />
+    <AppSidebar />
+    <div class="app-layout__main">
+      <AppHeader />
+      <main class="app-layout__content">
+        <router-view />
+      </main>
+    </div>
+    <AiChatPanel />
+    <AiFloatBtn />
+  </div>
+</template>
+
+<style scoped>
+.app-layout__offline-alert {
+  margin: 0;
+  border-radius: 0;
+  flex-shrink: 0;
+}
+</style>

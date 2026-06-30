@@ -1,0 +1,78 @@
+.app-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-layout__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-layout__content {
+  flex: 1;
+  min-height: 0;
+  padding: 20px;
+  background: var(--theme-bg, #f3f5f8);
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.app-header {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+.app-header__left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.app-header__collapse {
+  font-size: 20px;
+  cursor: pointer;
+  margin-right: 16px;
+  color: var(--theme-text-secondary);
+  transition: color 0.2s;
+}
+
+.app-header__collapse:hover {
+  color: var(--theme-primary);
+}
+
+.app-header__right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.app-header__role {
+  border: none;
+  background: var(--theme-primary-muted);
+  color: var(--theme-primary);
+}
+
+.app-header__user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--theme-text-base);
+}
+
+.app-header__username {
+  font-size: 14px;
+  font-weight: 500;
+}

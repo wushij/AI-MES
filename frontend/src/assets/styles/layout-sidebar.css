@@ -1,0 +1,210 @@
+/* Sidebar — aligned with wu-admin layout-sidebar.css */
+
+.layout-sidebar {
+  width: 220px;
+  background: var(--theme-sidebar-bg, #ffffff);
+  border-right: 1px solid var(--theme-border, #e2e8f0);
+  box-shadow: 2px 0 12px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  height: 100%;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.layout-sidebar.is-collapse {
+  width: 72px;
+}
+
+.layout-sidebar .cd-sidebar-logo {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--theme-border, #e2e8f0);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.layout-sidebar.is-collapse .cd-sidebar-logo {
+  justify-content: center;
+  padding: 0;
+}
+
+.layout-sidebar .cd-logo-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.layout-sidebar .cd-logo-text {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--theme-text-base);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.menu-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+}
+
+.menu-wrapper::-webkit-scrollbar {
+  width: 4px;
+}
+
+.menu-wrapper::-webkit-scrollbar-thumb {
+  background: #d0d5dd;
+  border-radius: 4px;
+}
+
+.layout-sidebar .sidebar-menu {
+  border-right: none;
+  background: transparent;
+}
+
+.layout-sidebar .sidebar-menu:not(.el-menu--collapse) {
+  width: 204px;
+}
+
+.layout-sidebar .el-menu {
+  border-right: none;
+  background: transparent;
+}
+
+.layout-sidebar .el-sub-menu__title,
+.layout-sidebar .el-menu-item {
+  color: var(--theme-text-secondary, #64748b);
+  border-radius: 8px;
+  margin: 2px 0;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  font-weight: 500;
+}
+
+.layout-sidebar .el-sub-menu__title {
+  height: 44px;
+  line-height: 44px;
+}
+
+.layout-sidebar .el-menu-item {
+  height: 40px;
+  line-height: 40px;
+  box-sizing: border-box;
+}
+
+.layout-sidebar .el-menu-item .el-icon {
+  width: 18px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.layout-sidebar .el-sub-menu__title:hover,
+.layout-sidebar .el-menu-item:hover {
+  background: var(--theme-primary-muted, rgba(30, 41, 59, 0.08));
+  color: var(--theme-primary, #010710);
+}
+
+.layout-sidebar .el-menu-item.is-active {
+  color: var(--theme-primary, #010710);
+  background: var(--theme-primary-muted, rgba(30, 41, 59, 0.1));
+  font-weight: 500;
+  box-shadow: inset 3px 0 0 var(--theme-primary, #010710);
+}
+
+.layout-sidebar .el-menu--collapse .el-menu-item,
+.layout-sidebar .el-menu--collapse .el-sub-menu__title {
+  margin-left: 0 !important;
+  justify-content: center;
+}
+
+.layout-sidebar .cd-sidebar-footer {
+  flex-shrink: 0;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--theme-border, #e2e8f0);
+}
+
+.layout-sidebar.is-collapse .cd-sidebar-footer {
+  display: none;
+}
+
+/* Workshop summary card */
+.layout-sidebar .cd-storage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--theme-border, #e2e8f0);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.layout-sidebar .cd-storage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.layout-sidebar .cd-storage-head-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--theme-text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.layout-sidebar .cd-storage-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--theme-primary);
+  background: var(--theme-primary-muted);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.layout-sidebar .cd-storage-percent {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--theme-primary);
+}
+
+.layout-sidebar .cd-storage-usage {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.layout-sidebar .cd-storage-usage strong {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--theme-text-base);
+}
+
+.layout-sidebar .cd-storage-quota {
+  font-size: 12px;
+  color: var(--theme-text-secondary);
+}
+
+.layout-sidebar .cd-storage-type {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--theme-border) 80%, transparent);
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+}
+
+.layout-sidebar .el-progress-bar__outer {
+  background-color: var(--theme-primary-muted) !important;
+  border-radius: 3px !important;
+}
