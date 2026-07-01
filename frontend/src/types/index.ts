@@ -222,7 +222,6 @@ export interface CozeConfig {
   apiUrl: string
   workflowId?: string
   welcomeMessage?: string
-  knowledgeBase?: string
   enabled: boolean
   hasApiToken?: boolean
   apiTokenMasked?: string
@@ -238,7 +237,6 @@ export interface CozeConfigSavePayload {
   apiUrl: string
   workflowId?: string
   welcomeMessage?: string
-  knowledgeBase?: string
   enabled: boolean
 }
 

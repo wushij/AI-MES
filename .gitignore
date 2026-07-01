@@ -72,4 +72,6 @@ dependency-reduced-pom.xml
 *~
 ~$*
 
-# docs/ 目录纳入版本管理，不忽略
+# --- 本地知识库与人设（勿提交，各环境自行维护）---
+docs/knowledge-base/
+docs/coze智能体的人设提示词.txt

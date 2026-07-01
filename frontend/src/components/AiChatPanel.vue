@@ -166,8 +166,6 @@ async function submit() {
   transform: scale(0.97);
 }
 
-
-
 .slide-panel-enter-active,
 .slide-panel-leave-active {
   transition: all 0.2s ease;

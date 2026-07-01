@@ -17,17 +17,19 @@ export async function getChatSessions() {
       .then((r) => r.data)
   )
 
-  const groups = new Map<string, { id: string; title: string; updatedAt: string; firstAt: number }>()
+  const groups = new Map<string, { id: string; title: string; fullTitle?: string; updatedAt: string; firstAt: number }>()
   for (const item of history) {
     const id = String(item.sessionId ?? '').trim()
     if (!id) continue
     const createdAt = String(item.createTime ?? '')
     const createdTs = Date.parse(createdAt) || 0
+    const userMessage = item.userMessage?.trim() ?? ''
     const existing = groups.get(id)
     if (!existing) {
       groups.set(id, {
         id,
-        title: item.userMessage?.slice(0, 20) || '对话',
+        title: userMessage ? sessionTitleFromMessage(userMessage) : '对话',
+        fullTitle: userMessage || undefined,
         updatedAt: createdAt,
         firstAt: createdTs || Date.now()
       })
@@ -38,13 +40,21 @@ export async function getChatSessions() {
     }
     if (createdTs && (createdTs < existing.firstAt || !existing.firstAt)) {
       existing.firstAt = createdTs
-      existing.title = item.userMessage?.slice(0, 20) || existing.title
+      if (userMessage) {
+        existing.title = sessionTitleFromMessage(userMessage)
+        existing.fullTitle = userMessage
+      }
     }
   }
 
   return Array.from(groups.values())
     .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
-    .map(({ id, title, updatedAt }) => ({ id, title, updatedAt }))
+    .map(({ id, title, fullTitle, updatedAt }) => ({ id, title, fullTitle, updatedAt }))
+}
+
+function sessionTitleFromMessage(message: string) {
+  const text = message.trim()
+  return text.length > 20 ? text.slice(0, 20) : text
 }
 
 export async function createChatSession(payload: { title?: string }) {

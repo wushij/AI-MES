@@ -4,6 +4,8 @@ import { getCurrentUser, login as loginApi, logout as logoutApi } from '@/api/au
 import { TOKEN_STORAGE_KEY, USER_STORAGE_KEY, type ApiRequestError } from '@/api/request'
 import { clearAuthStorage } from '@/utils/session'
 import type { LoginPayload, LoginResponse, UserProfile, UserRole } from '@/types'
+import { useAiChatStore } from './aiChat'
+import { useChatStore } from './chat'
 
 export const useUserStore = defineStore('user', () => {
   const token = ref(localStorage.getItem(TOKEN_STORAGE_KEY) || '')
@@ -25,15 +27,22 @@ export const useUserStore = defineStore('user', () => {
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(payload.user))
   }
 
+  function resetChatStores() {
+    useAiChatStore().reset()
+    useChatStore().reset()
+  }
+
   function clearSession() {
     token.value = ''
     profile.value = null
     backendUnavailable.value = false
     clearAuthStorage()
+    resetChatStores()
     initialized.value = true
   }
 
   async function login(payload: LoginPayload) {
+    resetChatStores()
     const response = await loginApi(payload)
     persistSession(response)
     backendUnavailable.value = false

@@ -18,7 +18,6 @@ public class SysCozeConfig {
     private String apiUrl;
     private String workflowId;
     private String welcomeMessage;
-    private String knowledgeBase;
     private Integer enabled;
     private LocalDateTime updateTime;
 }

@@ -4,6 +4,7 @@ import type {
   CozeChatResponse,
   CozeConfig,
   CozeConfigSavePayload,
+  CozeHealthCheckItem,
   CozeHealthResult,
   CozeSchedulingResponse
 } from '@/types'
@@ -38,22 +39,22 @@ export function testCozeConnection() {
     .then((res) => res.data)
 }
 
-export function testCozeChatHealth() {
+export function testCozeChatHealth(): Promise<CozeHealthCheckItem> {
   return request
-    .get<CozeHealthResult['chat']>('/coze/health/chat', {
+    .get('/coze/health/chat', {
       timeout: 60000,
       skipErrorHandler: true
     })
-    .then((res) => res.data)
+    .then((res) => res.data as CozeHealthCheckItem)
 }
 
-export function testCozeWorkflowHealth() {
+export function testCozeWorkflowHealth(): Promise<CozeHealthCheckItem> {
   return request
-    .get<CozeHealthResult['workflow']>('/coze/health/workflow', {
+    .get('/coze/health/workflow', {
       timeout: 180000,
       skipErrorHandler: true
     })
-    .then((res) => res.data)
+    .then((res) => res.data as CozeHealthCheckItem)
 }
 
 export function getSchedulingSuggestions(payload: { planDate?: string; workOrderIds?: Array<number | string> }) {

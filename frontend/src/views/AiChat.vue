@@ -23,16 +23,23 @@
 
         <div v-else class="history-list">
           <div
-            v-for="session in sessions"
+            v-for="session in visibleSessions"
             :key="session.id"
             class="history-item"
             :class="{ 'history-item--active': session.id === activeSessionId }"
           >
             <button class="history-item__main" @click="selectSession(session)">
-              <span class="history-item__title">
-                {{ session.title }}
-                <span v-if="chatStore.pendingSessions[String(session.id)]" class="history-item__pending">回复中</span>
-              </span>
+              <el-tooltip
+                :content="session.fullTitle || session.title"
+                placement="right"
+                :show-after="300"
+                :disabled="!session.fullTitle"
+              >
+                <span class="history-item__title">
+                  {{ session.title }}
+                  <span v-if="chatStore.pendingSessions[String(session.id)]" class="history-item__pending">回复中</span>
+                </span>
+              </el-tooltip>
               <span class="history-item__time">{{ formatSessionTime(session.updatedAt) }}</span>
             </button>
             <el-button
@@ -45,6 +52,14 @@
               删除
             </el-button>
           </div>
+          <button
+            v-if="hiddenSessionCount > 0"
+            type="button"
+            class="history-load-more"
+            @click="historyExpanded = !historyExpanded"
+          >
+            {{ historyExpanded ? '收起' : `更多（${hiddenSessionCount}）` }}
+          </button>
         </div>
       </el-card>
 
@@ -110,8 +125,9 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { storeToRefs } from 'pinia'
-import { nextTick, onActivated, onMounted, ref } from 'vue'
+import { computed, nextTick, onActivated, onMounted, ref } from 'vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { renderChatMarkdown } from '@/utils/chatMarkdown'
 import type { ChatSession } from '@/stores/aiChat'
 import { useAiChatStore } from '@/stores/aiChat'
 
@@ -127,9 +143,20 @@ const {
   isFreshSession
 } = storeToRefs(chatStore)
 
+const HISTORY_PREVIEW_COUNT = 8
+
 const draftMessage = ref('')
 const messageViewportRef = ref<HTMLDivElement>()
+const historyExpanded = ref(false)
 const quickQuestions = ['今日生产概况', '甲班有哪些任务？', 'WO-2026-001 的进度是多少？', '设备停机应该如何处理？']
+
+const visibleSessions = computed(() =>
+  historyExpanded.value ? sessions.value : sessions.value.slice(0, HISTORY_PREVIEW_COUNT)
+)
+
+const hiddenSessionCount = computed(() =>
+  Math.max(0, sessions.value.length - HISTORY_PREVIEW_COUNT)
+)
 
 onMounted(async () => {
   try {
@@ -143,12 +170,13 @@ onMounted(async () => {
 })
 
 onActivated(async () => {
-  if (chatStore.initialized) {
-    try {
+  try {
+    await chatStore.ensureInitialized()
+    if (chatStore.initialized) {
       await chatStore.loadSessions()
-    } catch {
-      /* ignore refresh errors */
     }
+  } catch {
+    /* ignore refresh errors */
   }
   await nextTick()
   scrollToBottom()
@@ -231,22 +259,7 @@ function formatSessionTime(value: string) {
 }
 
 function renderMarkdown(text: string) {
-  const escaped = escapeHtml(text)
-  const codeBlocks = escaped.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-  const bolded = codeBlocks.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-  const inlineCode = bolded.replace(/`([^`]+)`/g, '<code>$1</code>')
-  const withLists = inlineCode.replace(/(?:^|\n)- (.*?)(?=\n|$)/g, '<li>$1</li>')
-  const wrappedLists = withLists.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
-  return wrappedLists.replace(/\n/g, '<br />')
-}
-
-function escapeHtml(text: string) {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+  return renderChatMarkdown(text)
 }
 </script>
 
@@ -263,6 +276,23 @@ function escapeHtml(text: string) {
 .panel-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 
 .history-loading, .history-list { display: flex; flex-direction: column; gap: 10px; }
+
+.history-load-more {
+  align-self: center;
+  border: none;
+  background: transparent;
+  color: #4f46e5;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+.history-load-more:hover {
+  background: rgba(99, 102, 241, 0.08);
+}
 
 .new-chat-btn {
   min-width: 84px;
@@ -302,6 +332,12 @@ function escapeHtml(text: string) {
   cursor: pointer;
   padding: 0;
   text-align: left;
+}
+
+.history-item__main :deep(.el-tooltip__trigger) {
+  display: block;
+  min-width: 0;
+  width: 100%;
 }
 
 .history-item__title {
@@ -362,6 +398,8 @@ function escapeHtml(text: string) {
   background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
   color: #1e293b;
   border-top-left-radius: 6px;
+  align-self: flex-start;
+  width: min(76%, 760px);
 }
 
 .message-bubble--user {
@@ -501,9 +539,81 @@ function escapeHtml(text: string) {
 
 .typing-indicator span:nth-child(3) { animation-delay: 0.3s; }
 
+.markdown-body {
+  width: 100%;
+  overflow-x: auto;
+}
+
 .markdown-body :deep(pre) { overflow-x: auto; padding: 12px; background: rgba(15, 23, 42, 0.06); border-radius: 12px; }
 
-.markdown-body :deep(code) { font-family: Consolas, 'Courier New', monospace; }
+.markdown-body :deep(code) { font-family: Consolas, 'Courier New', monospace; font-size: 13px; }
+
+.markdown-body :deep(p) { margin: 0 0 10px; }
+
+.markdown-body :deep(p:last-child) { margin-bottom: 0; }
+
+.markdown-body :deep(hr) { border: none; border-top: 1px solid #e2e8f0; margin: 14px 0; }
+
+.markdown-body :deep(table) {
+  width: 100%;
+  min-width: 300px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  border: 1px solid #e2e8f0;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.markdown-body :deep(th:first-child),
+.markdown-body :deep(td:first-child) {
+  width: 32%;
+  white-space: nowrap;
+}
+
+.markdown-body :deep(th:last-child),
+.markdown-body :deep(td:last-child) {
+  width: 68%;
+}
+
+.markdown-body :deep(th) { background: #f8fafc; font-weight: 600; }
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) { margin: 8px 0; padding-left: 20px; }
+
+.markdown-body :deep(li) { margin: 4px 0; }
+
+.markdown-body :deep(strong) { font-weight: 700; color: #0f172a; }
+
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3) {
+  margin: 12px 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.markdown-body :deep(h1:first-child),
+.markdown-body :deep(h2:first-child),
+.markdown-body :deep(h3:first-child),
+.markdown-body :deep(p:first-child) { margin-top: 0; }
+
+.markdown-body :deep(blockquote) {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 3px solid #4f46e5;
+  background: rgba(99, 102, 241, 0.06);
+  color: #475569;
+}
 
 @keyframes bounce { 0%, 80%, 100% { transform: translateY(0); opacity: 0.5; } 40% { transform: translateY(-4px); opacity: 1; } }
 

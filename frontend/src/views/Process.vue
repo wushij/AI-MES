@@ -36,7 +36,7 @@
       <el-table v-loading="loading" :data="pagedTasks" stripe border highlight-current-row :header-cell-style="tableHeaderStyle">
         <el-table-column prop="code" label="工单号" min-width="140" align="center">
           <template #default="{ row }">
-            <span class="code-text">{{ row.code }}</span>
+            <span class="code-text" @click="openProgressDialog(row)">{{ row.code }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="productName" label="产品" min-width="140" show-overflow-tooltip align="center" />
@@ -438,6 +438,14 @@ function mapTask(item: Record<string, unknown>, boardStatus: BoardStatus): TaskR
   font-weight: 600;
   color: #4f46e5;
   font-family: Consolas, monospace;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.code-text:hover {
+  color: #6366f1;
+  text-decoration: underline;
+  opacity: 0.9;
 }
 
 .done-hint {

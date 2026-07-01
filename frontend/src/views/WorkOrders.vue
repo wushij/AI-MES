@@ -45,7 +45,7 @@
       <el-table v-loading="loading" :data="orders" stripe border highlight-current-row :header-cell-style="tableHeaderStyle">
         <el-table-column prop="code" label="工单号" min-width="150" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" style="font-weight: 600;">{{ row.code }}</el-button>
+            <el-button link type="primary" style="font-weight: 600;" @click="openProgressDrawer(row)">{{ row.code }}</el-button>
           </template>
         </el-table-column>
         <el-table-column prop="planCode" label="计划" min-width="140" align="center" />

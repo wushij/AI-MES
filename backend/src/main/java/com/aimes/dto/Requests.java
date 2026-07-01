@@ -231,7 +231,6 @@ public final class Requests {
         private String apiUrl;
         private String workflowId;
         private String welcomeMessage;
-        private String knowledgeBase;
         @NotNull(message = "启用状态不能为空")
         private Boolean enabled;
     }

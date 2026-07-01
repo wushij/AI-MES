@@ -117,7 +117,6 @@ public class CozeConfigService {
         view.put("apiUrl", effectiveApiUrl);
         view.put("workflowId", StringUtils.hasText(row.getWorkflowId()) ? row.getWorkflowId() : "");
         view.put("welcomeMessage", getWelcomeMessage());
-        view.put("knowledgeBase", StringUtils.hasText(row.getKnowledgeBase()) ? row.getKnowledgeBase() : "");
         view.put("enabled", isEnabled());
         view.put("hasApiToken", StringUtils.hasText(effectiveToken));
         view.put("apiTokenMasked", maskToken(effectiveToken));
@@ -137,7 +136,6 @@ public class CozeConfigService {
         row.setApiUrl(StringUtils.hasText(request.getApiUrl()) ? request.getApiUrl().trim() : "https://api.coze.cn/v3");
         row.setWorkflowId(StringUtils.hasText(request.getWorkflowId()) ? request.getWorkflowId().trim() : null);
         row.setWelcomeMessage(StringUtils.hasText(request.getWelcomeMessage()) ? request.getWelcomeMessage().trim() : null);
-        row.setKnowledgeBase(StringUtils.hasText(request.getKnowledgeBase()) ? request.getKnowledgeBase().trim() : null);
         row.setEnabled(Boolean.TRUE.equals(request.getEnabled()) ? 1 : 0);
         row.setUpdateTime(LocalDateTime.now());
         sysCozeConfigMapper.updateById(row);

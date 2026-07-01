@@ -3,18 +3,18 @@ import { defineStore } from 'pinia'
 import { sendCozeMessage } from '@/api/coze'
 import type { CozeChatMessage } from '@/types'
 
+const defaultWelcomeMessage: CozeChatMessage = {
+  id: 'welcome',
+  role: 'assistant',
+  content: '您好，我是 AI-MES 智能助手，可以协助查询工单进度、班组任务、异常处置和 SOP。',
+  createdAt: new Date().toISOString()
+}
+
 export const useChatStore = defineStore('chat', () => {
   const visible = ref(false)
   const sending = ref(false)
   const conversationId = ref('')
-  const messages = ref<CozeChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: '您好，我是 AI-MES 智能助手，可以协助查询工单进度、班组任务、异常处置和 SOP。',
-      createdAt: new Date().toISOString()
-    }
-  ])
+  const messages = ref<CozeChatMessage[]>([{ ...defaultWelcomeMessage }])
 
   const hasMessages = computed(() => messages.value.length > 0)
 
@@ -28,6 +28,13 @@ export const useChatStore = defineStore('chat', () => {
 
   function toggle() {
     visible.value = !visible.value
+  }
+
+  function reset() {
+    visible.value = false
+    sending.value = false
+    conversationId.value = ''
+    messages.value = [{ ...defaultWelcomeMessage, createdAt: new Date().toISOString() }]
   }
 
   function pushMessage(message: CozeChatMessage) {
@@ -94,6 +101,7 @@ export const useChatStore = defineStore('chat', () => {
     open,
     close,
     toggle,
-    sendMessage
+    sendMessage,
+    reset
   }
 })

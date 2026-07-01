@@ -5,7 +5,7 @@ import { Connection, Setting, CircleCheckFilled, CircleCloseFilled } from '@elem
 import PageHeader from '@/components/common/PageHeader.vue'
 import AdminSubNav from '@/components/admin/AdminSubNav.vue'
 import { getCozeConfig, saveCozeConfig, testCozeChatHealth, testCozeWorkflowHealth } from '@/api/coze'
-import type { CozeConfig, CozeHealthResult } from '@/types'
+import type { CozeConfig, CozeHealthCheckItem, CozeHealthResult } from '@/types'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -20,14 +20,19 @@ function healthItemType(status?: string) {
   return 'error'
 }
 
-function resolveOverallStatus(chat?: CozeHealthResult['chat'], workflow?: CozeHealthResult['workflow']) {
+function resolveOverallStatus(
+  chat?: CozeHealthResult['chat'],
+  workflow?: CozeHealthResult['workflow']
+) {
   const chatStatus = chat?.status ?? 'error'
   const workflowStatus = workflow?.status ?? 'error'
-  if (chatStatus === 'pending' || workflowStatus === 'pending') return 'partial'
-  if (chatStatus === 'ok' && workflowStatus === 'ok') return 'ok'
-  if (chatStatus === 'ok' || workflowStatus === 'ok') return 'partial'
-  if (chatStatus === 'skipped' && workflowStatus === 'skipped') return 'mock'
-  return 'error'
+  if (chatStatus === 'pending' || workflowStatus === 'pending') {
+    return 'partial'
+  }
+  if (chatStatus !== 'ok') return 'error'
+  if (workflowStatus === 'error') return 'partial'
+  if (workflowStatus === 'ok') return 'ok'
+  return 'partial'
 }
 
 function formatTestError(error: unknown) {
@@ -38,7 +43,14 @@ function formatTestError(error: unknown) {
   return '请求失败'
 }
 
-function buildHealthMessage(chat?: CozeHealthResult['chat'], workflow?: CozeHealthResult['workflow']) {
+function createFailedHealthItem(message: string): CozeHealthCheckItem {
+  return { status: 'error', message }
+}
+
+function buildHealthMessage(
+  chat?: CozeHealthResult['chat'],
+  workflow?: CozeHealthResult['workflow']
+) {
   return `Bot 对话：${chat?.status ?? 'unknown'}；排产工作流：${workflow?.status ?? 'unknown'}`
 }
 
@@ -60,7 +72,6 @@ const form = reactive({
   botId: '',
   apiUrl: 'https://api.coze.cn/v3',
   workflowId: '',
-  knowledgeBase: '',
   welcomeMessage: '',
   enabled: true
 })
@@ -72,7 +83,6 @@ async function loadConfig() {
     form.botId = data.botId ?? ''
     form.apiUrl = data.apiUrl || 'https://api.coze.cn/v3'
     form.workflowId = data.workflowId ?? ''
-    form.knowledgeBase = data.knowledgeBase ?? ''
     form.welcomeMessage = data.welcomeMessage ?? ''
     form.enabled = data.enabled ?? true
     form.apiToken = ''
@@ -111,7 +121,6 @@ async function handleSave() {
       apiUrl: form.apiUrl.trim(),
       workflowId: form.workflowId.trim() || undefined,
       welcomeMessage: form.welcomeMessage.trim() || undefined,
-      knowledgeBase: form.knowledgeBase.trim() || undefined,
       enabled: form.enabled
     })
     ElMessage.success('Coze 配置已保存')
@@ -136,9 +145,9 @@ async function handleTest() {
     workflow: { status: 'pending', message: '排产工作流测试中，约需 30～90 秒…' }
   }
 
-  const chatTask = testCozeChatHealth()
+  const chatTask: Promise<CozeHealthCheckItem> = testCozeChatHealth()
     .then((chat) => {
-      if (healthResult.value && chat) {
+      if (healthResult.value) {
         healthResult.value.chat = chat
         healthResult.value.message = buildHealthMessage(chat, healthResult.value.workflow)
       }
@@ -146,7 +155,7 @@ async function handleTest() {
     })
     .catch((error) => {
       console.error('[Coze] Bot 测试失败', error)
-      const failed = { status: 'error', message: `Bot 对话测试失败：${formatTestError(error)}` }
+      const failed = createFailedHealthItem(`Bot 对话测试失败：${formatTestError(error)}`)
       if (healthResult.value) {
         healthResult.value.chat = failed
         healthResult.value.message = buildHealthMessage(failed, healthResult.value.workflow)
@@ -154,9 +163,9 @@ async function handleTest() {
       return failed
     })
 
-  const workflowTask = testCozeWorkflowHealth()
+  const workflowTask: Promise<CozeHealthCheckItem> = testCozeWorkflowHealth()
     .then((workflow) => {
-      if (healthResult.value && workflow) {
+      if (healthResult.value) {
         healthResult.value.workflow = workflow
         healthResult.value.message = buildHealthMessage(healthResult.value.chat, workflow)
       }
@@ -164,7 +173,7 @@ async function handleTest() {
     })
     .catch((error) => {
       console.error('[Coze] 工作流测试失败', error)
-      const failed = { status: 'error', message: `排产工作流测试失败：${formatTestError(error)}` }
+      const failed = createFailedHealthItem(`排产工作流测试失败：${formatTestError(error)}`)
       if (healthResult.value) {
         healthResult.value.workflow = failed
         healthResult.value.message = buildHealthMessage(healthResult.value.chat, failed)
@@ -179,7 +188,7 @@ async function handleTest() {
     healthResult.value.message = buildHealthMessage(chat, workflow)
 
     if (healthResult.value.status === 'ok') {
-      ElMessage.success('Bot 对话与排产工作流测试均成功')
+      ElMessage.success('Bot 与工作流检测均通过')
     } else if (chat?.status === 'ok' || workflow?.status === 'ok') {
       ElMessage.warning('部分测试通过，请查看下方详细结果')
     } else {
@@ -322,14 +331,6 @@ onMounted(loadConfig)
                 class="custom-input"
               />
             </el-form-item>
-            <el-form-item label="关联知识库 ID">
-              <el-input
-                v-model="form.knowledgeBase"
-                placeholder="填写后，Bot 会自动检索知识库获取工艺标准与 SOP 指导文档"
-                clearable
-                class="custom-input"
-              />
-            </el-form-item>
           </div>
 
           <el-form-item label="智能助理欢迎语">
@@ -357,7 +358,7 @@ onMounted(loadConfig)
             保存配置
           </el-button>
           <el-button :loading="testing" class="btn-test" @click="handleTest">
-            测试 Bot & 工作流
+            测试 Bot / 工作流
           </el-button>
           <span v-if="testing" class="test-hint">Bot 约 10 秒内出结果，工作流约 30～90 秒；两项并行测试中…</span>
         </div>
@@ -633,3 +634,4 @@ onMounted(loadConfig)
   border-radius: 12px !important;
 }
 </style>
+

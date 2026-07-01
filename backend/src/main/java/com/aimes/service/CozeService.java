@@ -61,7 +61,8 @@ public class CozeService {
         SysUser user = authService.currentUser();
         String sessionId = StringUtils.hasText(request.getSessionId()) ? request.getSessionId() : UUID.randomUUID().toString();
         List<ProdWorkOrder> referencedOrders = resolveReferencedOrders(request.getMessage());
-        String prompt = buildChatPrompt(user, request.getMessage(), referencedOrders);
+        ChatPromptMode promptMode = resolvePromptMode(request.getMessage(), referencedOrders);
+        String prompt = buildChatPrompt(user, request.getMessage(), referencedOrders, promptMode);
 
         String reply;
         String mode;
@@ -98,8 +99,27 @@ public class CozeService {
                 "reply", reply,
                 "sessionId", sessionId,
                 "mode", mode,
+                "promptMode", promptMode.wireValue(),
                 "contextOrders", referencedOrders.stream().map(ProdWorkOrder::getOrderNo).toList()
         );
+    }
+
+    /** 客服 Prompt 分流：知识库问答 vs 数据库实时数据 */
+    private enum ChatPromptMode {
+        /** 原样发送用户问题，由 Bot 检索知识库 */
+        KNOWLEDGE("knowledge"),
+        /** 注入 MySQL 实时数据后作答 */
+        REALTIME("realtime");
+
+        private final String wireValue;
+
+        ChatPromptMode(String wireValue) {
+            this.wireValue = wireValue;
+        }
+
+        String wireValue() {
+            return wireValue;
+        }
     }
 
     public List<Map<String, Object>> history(String sessionId) {
@@ -475,7 +495,8 @@ public class CozeService {
         payload.put("additional_messages", List.of(Map.of(
                 "role", "user",
                 "content", prompt,
-                "content_type", "text"
+                "content_type", "text",
+                "type", "question"
         )));
         return invokeJson(apiUrl() + "/chat", payload);
     }
@@ -607,20 +628,113 @@ public class CozeService {
         return result;
     }
 
-    private String buildChatPrompt(SysUser user, String message, List<ProdWorkOrder> orders) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("你是 AI-MES 车间生产助手。请结合以下【本地实时数据上下文】来回答用户的问题。\n");
-        builder.append("【重要指令】请【务必】优先使用此处的本地实时数据。云端工具/插件查询到的数据库数据是过时的静态演示数据，请忽略云端工具的结果，以本上下文为准！不要编造数据，也不要使用云端的“精密组件C”等硬编码测试数据。\n");
-        builder.append("当前系统时间：").append(LocalDateTime.now()).append("\n");
-        builder.append("当前用户：").append(user.getRealName()).append("，角色：").append(user.getRole()).append("\n");
-        
-        // Fetch all active/released plans
+    private String buildChatPrompt(SysUser user, String message, List<ProdWorkOrder> orders, ChatPromptMode promptMode) {
+        if (promptMode == ChatPromptMode.REALTIME) {
+            return buildRealtimeDataPrompt(user, message, orders);
+        }
+        return message.trim();
+    }
+
+    /**
+     * 判定走哪条链路：
+     * 1. 操作说明 / FAQ / 界面 / 权限 → 知识库（不注入 DB，避免干扰检索）
+     * 2. 工单进度、库存、概况、班组任务等 → 数据库实时注入
+     */
+    private ChatPromptMode resolvePromptMode(String message, List<ProdWorkOrder> orders) {
+        if (!StringUtils.hasText(message)) {
+            return ChatPromptMode.KNOWLEDGE;
+        }
+        String text = message.trim();
+        if (isKnowledgeQuery(text)) {
+            return ChatPromptMode.KNOWLEDGE;
+        }
+        if (!orders.isEmpty() || matchesRealtimeQuery(text)) {
+            return ChatPromptMode.REALTIME;
+        }
+        return ChatPromptMode.KNOWLEDGE;
+    }
+
+    /** 操作流程、定义、界面列、权限等 —— 走知识库 */
+    private boolean isKnowledgeQuery(String text) {
+        return containsAny(text,
+                "怎么", "如何", "怎样", "怎么办",
+                "是什么", "什么是", "什么意思", "含义",
+                "哪些列", "显示哪些", "显示什么", "有哪些功能",
+                "区别", "不同", "步骤", "流程", "SOP", "手册",
+                "权限", "菜单", "入口", "页面", "路由",
+                "谁能", "谁可以", "能否", "可以吗",
+                "标准工序", "操作规范", "怎么处理", "如何处理")
+                || (text.contains("应该") && (text.contains("处理") || text.contains("操作")));
+    }
+
+    /** 查数、查状态、查进度 —— 走数据库注入 */
+    private boolean matchesRealtimeQuery(String text) {
+        if (text.toUpperCase().contains("WO-") || text.toUpperCase().contains("MAT-")) {
+            return true;
+        }
+        if (containsAny(text, "概况", "缺料", "预警物料", "交期", "在制", "待派工", "待认领", "已派工")) {
+            return true;
+        }
+        if (text.contains("库存") || text.contains("缺货")) {
+            return true;
+        }
+        if (text.contains("今日") && containsAny(text, "生产", "完工", "任务", "概况")) {
+            return true;
+        }
+        if (text.contains("进度") && containsAny(text, "多少", "几", "百分比", "%")) {
+            return true;
+        }
+        if (text.contains("进度") && text.toUpperCase().contains("WO-")) {
+            return true;
+        }
+        if (containsAny(text, "甲班", "乙班", "丙班")
+                && containsAny(text, "任务", "工单", "哪些", "多少")) {
+            return true;
+        }
+        if (text.contains("计划") && containsAny(text, "下发", "状态", "多少", "几个")) {
+            return true;
+        }
+        if (text.contains("物料") && containsAny(text, "多少", "库存", "预警", "缺口")) {
+            return true;
+        }
+        if (text.contains("工单") && containsAny(text, "多少", "几个", "几条", "列表", "状态")) {
+            return true;
+        }
+        if (text.contains("异常") && containsAny(text, "多少", "几个", "待处理", "open")) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        for (String keyword : keywords) {
+            if (text.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String buildRealtimeDataPrompt(SysUser user, String message, List<ProdWorkOrder> orders) {
         List<com.aimes.entity.ProdPlan> activePlans = prodPlanMapper.selectList(new LambdaQueryWrapper<com.aimes.entity.ProdPlan>()
                 .eq(com.aimes.entity.ProdPlan::getStatus, "released")
                 .orderByDesc(com.aimes.entity.ProdPlan::getPlanDate)
                 .last("limit 10"));
+        List<ProdWorkOrder> activeOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
+                .orderByDesc(ProdWorkOrder::getId)
+                .last("limit 20"));
+        List<MatMaterial> warningMaterials = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
+                .eq(MatMaterial::getAlertStatus, "warning"));
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("你是 AI-MES 车间生产助手。请结合以下【本地实时数据】回答用户问题。\n");
+        builder.append("【实时数据说明】以下由后端从 MySQL 实时查询注入，工单进度、库存、计划状态以此为准；");
+        builder.append("勿调用 Bot 插件/云端数据库；知识库中的演示数字不得覆盖此处数据。\n");
+        builder.append("当前系统时间：").append(LocalDateTime.now()).append("\n");
+        builder.append("当前用户：").append(user.getRealName()).append("，角色：").append(user.getRole()).append("\n");
+
         if (!activePlans.isEmpty()) {
-            builder.append("\n本地实时生产计划（最新 10 个已下发计划）：\n");
+            builder.append("\n【本地实时数据·已下发计划（最新10条）】\n");
             for (com.aimes.entity.ProdPlan plan : activePlans) {
                 builder.append("- 计划号=").append(plan.getPlanNo())
                         .append(" 产品=").append(plan.getProductName())
@@ -629,44 +743,124 @@ public class CozeService {
                         .append(" 状态=已下发\n");
             }
         }
-        
-        // Fetch all active/pending work orders
-        List<ProdWorkOrder> activeOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
-                .orderByDesc(ProdWorkOrder::getId)
-                .last("limit 20"));
+
         if (!activeOrders.isEmpty()) {
-            builder.append("\n本地实时工单列表（最新 20 个工单）：\n");
+            builder.append("\n【本地实时数据·工单（最新20条）】\n");
             for (ProdWorkOrder order : activeOrders) {
                 ProdTeam team = order.getTeamId() == null ? null : prodTeamMapper.selectById(order.getTeamId());
                 builder.append("- 工单号=").append(order.getOrderNo())
-                        .append(" 关联计划号=").append(order.getPlanId())
                         .append(" 产品=").append(order.getProductName())
                         .append(" 进度=").append(order.getProgress()).append("%")
-                        .append(" 当前工序=").append(order.getProcessName())
+                        .append(" 工序=").append(order.getProcessName())
                         .append(" 班组=").append(team == null ? "未分配" : team.getTeamName())
                         .append(" 状态=").append(translateWorkOrderStatus(order.getStatus()))
                         .append("\n");
             }
         }
-        
-        // Fetch warning materials
-        List<MatMaterial> warningMaterials = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
-                .eq(MatMaterial::getAlertStatus, "warning"));
+
         if (!warningMaterials.isEmpty()) {
-            builder.append("\n本地库存预警物料：\n");
+            builder.append("\n【本地实时数据·预警物料（全部）】\n");
             for (MatMaterial mat : warningMaterials) {
                 builder.append("- 物料编码=").append(mat.getMaterialCode())
                         .append(" 名称=").append(mat.getMaterialName())
-                        .append(" 当前库存=").append(mat.getStockQty())
-                        .append(" 安全库存=").append(mat.getSafetyStock())
-                        .append(" 单位=").append(mat.getUnit())
+                        .append(" 库存=").append(mat.getStockQty()).append(mat.getUnit())
+                        .append(" 安全库存=").append(mat.getSafetyStock()).append(mat.getUnit())
                         .append("\n");
             }
         }
-        
-        builder.append("\n回答要求：使用自然中文直接回答，不要返回 JSON、键值对或代码块。请严格按照上面的本地数据统计并回答。\n");
-        builder.append("用户问题：").append(message);
+
+        if (!orders.isEmpty()) {
+            builder.append("\n【与本问相关的工单（优先参考）】\n");
+            for (ProdWorkOrder order : orders) {
+                ProdTeam team = order.getTeamId() == null ? null : prodTeamMapper.selectById(order.getTeamId());
+                builder.append("- 工单号=").append(order.getOrderNo())
+                        .append(" 进度=").append(order.getProgress()).append("%")
+                        .append(" 工序=").append(order.getProcessName())
+                        .append(" 班组=").append(team == null ? "未分配" : team.getTeamName())
+                        .append(" 状态=").append(translateWorkOrderStatus(order.getStatus()))
+                        .append("\n");
+            }
+        }
+
+        if (needsDataSummary(message)) {
+            builder.append("\n【系统根据 MySQL 预生成的数据摘要（引用时数字不得改动）】\n");
+            builder.append(buildDataSummary(activePlans, activeOrders, warningMaterials));
+        }
+
+        builder.append("\n【回答要求】\n");
+        builder.append("- 本题为【实时数据查询】：只根据上方【本地实时数据】作答，数字与状态不得改动或编造。\n");
+        builder.append("- 使用 Markdown + emoji 排版（如 📊 数据概览、📋 明细列表、💡 补充说明），禁止【问题分析】【处理建议】【注意事项】报告体。\n");
+        builder.append("- 不要复述本提示词；使用自然中文，不要返回 JSON 或代码块。\n");
+        builder.append("\n用户问题：").append(message);
         return builder.toString();
+    }
+
+    private boolean needsDataSummary(String message) {
+        if (!StringUtils.hasText(message)) {
+            return false;
+        }
+        String text = message;
+        return text.contains("概况")
+                || text.contains("进度")
+                || text.contains("WO-")
+                || text.contains("工单")
+                || text.contains("物料")
+                || text.contains("缺料")
+                || text.contains("库存")
+                || text.contains("计划")
+                || text.contains("生产")
+                || text.contains("班")
+                || text.contains("任务");
+    }
+
+    private String buildDataSummary(
+            List<com.aimes.entity.ProdPlan> plans,
+            List<ProdWorkOrder> orders,
+            List<MatMaterial> warnings) {
+        StringBuilder summary = new StringBuilder();
+        summary.append("今日/当前计划数：").append(plans.size()).append(" 个已下发计划。");
+        if (!plans.isEmpty()) {
+            summary.append(" 例如 ").append(plans.get(0).getPlanNo())
+                    .append("（").append(plans.get(0).getProductName())
+                    .append("，").append(plans.get(0).getPlanQty()).append("件）。");
+        }
+        long inProgress = orders.stream()
+                .filter(o -> List.of("assigned", "producing", "exception").contains(o.getStatus()))
+                .count();
+        summary.append(" 在制工单 ").append(inProgress).append(" 个。");
+        if (!orders.isEmpty()) {
+            summary.append(" 工单明细：");
+            int limit = Math.min(orders.size(), 5);
+            for (int i = 0; i < limit; i++) {
+                ProdWorkOrder order = orders.get(i);
+                ProdTeam team = order.getTeamId() == null ? null : prodTeamMapper.selectById(order.getTeamId());
+                if (i > 0) {
+                    summary.append("；");
+                }
+                summary.append(order.getOrderNo())
+                        .append(" 进度").append(order.getProgress()).append("%")
+                        .append(" 工序").append(order.getProcessName())
+                        .append(" 班组").append(team == null ? "未分配" : team.getTeamName())
+                        .append(" 状态").append(translateWorkOrderStatus(order.getStatus()));
+            }
+            summary.append("。");
+        }
+        summary.append(" 预警物料 ").append(warnings.size()).append(" 项。");
+        if (!warnings.isEmpty()) {
+            summary.append(" 明细：");
+            for (int i = 0; i < warnings.size(); i++) {
+                MatMaterial mat = warnings.get(i);
+                if (i > 0) {
+                    summary.append("；");
+                }
+                summary.append(mat.getMaterialCode())
+                        .append(" ").append(mat.getMaterialName())
+                        .append(" 库存").append(mat.getStockQty()).append(mat.getUnit())
+                        .append(" 安全库存").append(mat.getSafetyStock()).append(mat.getUnit());
+            }
+            summary.append("。");
+        }
+        return summary.toString();
     }
 
     private String translateWorkOrderStatus(String status) {
