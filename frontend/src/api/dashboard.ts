@@ -28,7 +28,7 @@ export async function getDashboardData() {
       totalQty: Number(item.totalCount ?? 0),
       progress: Number(item.avgProgress ?? 0)
     })),
-    outputTrend: buildTrend(),
+    outputTrend: (stats.outputTrend as { date: string; outputQty: number }[]) || buildTrend(),
     exceptionList: (alerts.exceptions ?? []).map((item) => ({
       id: item.id,
       code: item.eventNo,

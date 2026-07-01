@@ -6,6 +6,7 @@ import { clearAuthStorage } from '@/utils/session'
 import type { LoginPayload, LoginResponse, UserProfile, UserRole } from '@/types'
 import { useAiChatStore } from './aiChat'
 import { useChatStore } from './chat'
+import { useNotificationStore } from './notifications'
 
 export const useUserStore = defineStore('user', () => {
   const token = ref(localStorage.getItem(TOKEN_STORAGE_KEY) || '')
@@ -30,6 +31,7 @@ export const useUserStore = defineStore('user', () => {
   function resetChatStores() {
     useAiChatStore().reset()
     useChatStore().reset()
+    useNotificationStore().reset()
   }
 
   function clearSession() {

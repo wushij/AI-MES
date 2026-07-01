@@ -110,7 +110,7 @@
             type="textarea"
             :autosize="{ minRows: 1, maxRows: 5 }"
             resize="none"
-            placeholder="例如：WO-2026-001 的进度是多少？"
+            placeholder="输入您的问题..."
             @keydown.enter.prevent="handleEnter"
           />
           <el-button type="primary" :loading="sending" class="send-btn" @click="sendMessage">发送</el-button>
@@ -495,7 +495,7 @@ function renderMarkdown(text: string) {
   border: none !important;
   box-shadow: none !important;
   background: transparent !important;
-  padding: 6px 0 !important;
+  padding: 6px 8px !important;
   font-size: 14px;
   color: #1e293b;
   min-height: 24px !important;

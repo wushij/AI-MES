@@ -39,8 +39,7 @@ public class ExceptionService {
                 .like(StringUtils.hasText(keyword), ExcEvent::getEventNo, keyword)
                 .eq(StringUtils.hasText(type), ExcEvent::getEventType, type)
                 .eq(StringUtils.hasText(status), ExcEvent::getStatus, status)
-                .orderByAsc(ExcEvent::getStatus)
-                .orderByDesc(ExcEvent::getOccurTime));
+                .last("ORDER BY FIELD(status, 'open', 'processing', 'closed'), occur_time DESC"));
         return Map.of("total", page.getTotal(), "records", page.getRecords().stream().map(this::toView).toList());
     }
 

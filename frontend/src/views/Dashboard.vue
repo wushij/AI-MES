@@ -19,7 +19,7 @@
       <template #template>
         <el-row :gutter="16">
           <el-col v-for="item in 4" :key="item" :xs="24" :sm="12" :lg="6">
-            <el-skeleton-item variant="rect" style="height: 132px; border-radius: 16px" />
+            <el-skeleton-item variant="rect" style="height: 96px; border-radius: 16px" />
           </el-col>
         </el-row>
       </template>
@@ -58,7 +58,7 @@
       </el-row>
 
       <el-row :gutter="16" class="section-gap">
-        <el-col :xs="24" :lg="12">
+        <el-col :xs="24" :lg="24">
           <el-card class="panel-card" shadow="hover">
             <template #header>
               <div class="panel-card__header">
@@ -67,18 +67,18 @@
               </div>
             </template>
             <el-table v-if="exceptionList.length" :data="exceptionList" stripe border highlight-current-row :header-cell-style="tableHeaderStyle">
-              <el-table-column prop="code" label="异常单号" min-width="130" />
-              <el-table-column prop="typeLabel" label="类型" min-width="120" />
-              <el-table-column prop="workOrderCode" label="工单号" min-width="120" />
-              <el-table-column prop="reportedAt" label="上报时间" min-width="160" />
-              <el-table-column label="状态" width="110">
+              <el-table-column prop="code" label="异常单号" min-width="130" align="center" />
+              <el-table-column prop="typeLabel" label="类型" min-width="120" align="center" />
+              <el-table-column prop="workOrderCode" label="工单号" min-width="120" align="center" />
+              <el-table-column prop="reportedAt" label="上报时间" min-width="160" align="center" />
+              <el-table-column label="状态" width="110" align="center">
                 <template #default="{ row }"><StatusTag :status="row.status" /></template>
               </el-table-column>
             </el-table>
             <el-empty v-else description="暂无异常记录" />
           </el-card>
         </el-col>
-        <el-col :xs="24" :lg="12">
+        <el-col :xs="24" :lg="24">
           <el-card class="panel-card" shadow="hover">
             <template #header>
               <div class="panel-card__header">
@@ -87,11 +87,11 @@
               </div>
             </template>
             <el-table v-if="materialAlerts.length" :data="materialAlerts" stripe border highlight-current-row :header-cell-style="tableHeaderStyle">
-              <el-table-column prop="name" label="物料" min-width="160" />
-              <el-table-column prop="stockQty" label="库存" min-width="100" />
-              <el-table-column prop="safetyStock" label="安全库存" min-width="110" />
-              <el-table-column prop="gap" label="缺口" min-width="90" />
-              <el-table-column label="状态" width="110">
+              <el-table-column prop="name" label="物料" min-width="160" align="center" />
+              <el-table-column prop="stockQty" label="库存" min-width="100" align="center" />
+              <el-table-column prop="safetyStock" label="安全库存" min-width="110" align="center" />
+              <el-table-column prop="gap" label="缺口" min-width="90" align="center" />
+              <el-table-column label="状态" width="110" align="center">
                 <template #default><StatusTag status="warning" /></template>
               </el-table-column>
             </el-table>
@@ -343,9 +343,9 @@ function pad(value: number) { return String(value).padStart(2, '0') }
 .action-bar__meta, .action-bar__buttons { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .action-bar__time { color: var(--theme-text-secondary, #64748b); font-size: 13px; }
 .section-gap { margin-top: 0; }
-.panel-card { border-radius: 16px; }
+.panel-card { border-radius: 16px; margin-bottom: 16px; }
 .panel-card__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 600; }
 .chart-box { height: 320px; }
-:deep(.el-card__body) { min-height: 180px; }
+.panel-card :deep(.el-card__body) { min-height: 180px; }
 @media (max-width: 900px) { .action-bar { align-items: flex-start; flex-direction: column; } .chart-box { height: 280px; } }
 </style>

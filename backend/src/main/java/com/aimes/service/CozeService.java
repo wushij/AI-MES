@@ -622,7 +622,7 @@ public class CozeService {
         if (result.isEmpty()) {
             result = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
                     .orderByAsc(ProdWorkOrder::getPriority)
-                    .orderByDesc(ProdWorkOrder::getDeadline)
+                    .orderByAsc(ProdWorkOrder::getDeadline)
                     .last("limit 3"));
         }
         return result;

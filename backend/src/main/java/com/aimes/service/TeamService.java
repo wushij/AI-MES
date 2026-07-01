@@ -23,9 +23,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class TeamService {
 
-    private final ProdTeamMapper prodTeamMapper;
     private final SysUserMapper sysUserMapper;
+    private final ProdTeamMapper prodTeamMapper;
     private final ProdWorkOrderMapper prodWorkOrderMapper;
+    private final ReferentialIntegrityService referentialIntegrityService;
 
     public List<Map<String, Object>> list() {
         return prodTeamMapper.selectList(new LambdaQueryWrapper<ProdTeam>().orderByAsc(ProdTeam::getId))
@@ -106,14 +107,7 @@ public class TeamService {
 
     @Transactional
     public void delete(Long id) {
-        long users = sysUserMapper.selectCount(new LambdaQueryWrapper<SysUser>().eq(SysUser::getTeamId, id));
-        if (users > 0) {
-            throw new BusinessException("班组下仍有成员，不能删除");
-        }
-        long orders = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>().eq(ProdWorkOrder::getTeamId, id));
-        if (orders > 0) {
-            throw new BusinessException("班组已关联工单，不能删除");
-        }
+        referentialIntegrityService.ensureTeamDeletable(id);
         prodTeamMapper.deleteById(id);
     }
 

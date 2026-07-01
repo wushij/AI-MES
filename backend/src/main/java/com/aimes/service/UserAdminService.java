@@ -7,6 +7,7 @@ import com.aimes.entity.SysUser;
 import com.aimes.mapper.ProdTeamMapper;
 import com.aimes.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ public class UserAdminService {
     private final SysUserMapper sysUserMapper;
     private final ProdTeamMapper prodTeamMapper;
     private final PasswordEncoder passwordEncoder;
+    private final ReferentialIntegrityService referentialIntegrityService;
 
     public List<Map<String, Object>> list() {
         return sysUserMapper.selectList(new LambdaQueryWrapper<SysUser>().orderByDesc(SysUser::getId))
@@ -85,6 +87,18 @@ public class UserAdminService {
         user.setStatus(user.getStatus() != null && user.getStatus() == 1 ? 0 : 1);
         sysUserMapper.updateById(user);
         return toView(user);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        SysUser user = requireUser(id);
+        referentialIntegrityService.ensureUserDeletable(id);
+        Long teamId = user.getTeamId();
+        sysUserMapper.deleteById(id);
+        syncTeamMemberCount(teamId);
+        prodTeamMapper.update(null, new LambdaUpdateWrapper<ProdTeam>()
+                .set(ProdTeam::getLeaderId, null)
+                .eq(ProdTeam::getLeaderId, id));
     }
 
     private SysUser requireUser(Long id) {

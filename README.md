@@ -16,7 +16,7 @@
 | 班组管理 | 班组与产线维护 | 管理员、主管 |
 | 异常管理 | 设备/缺料/质量异常上报与处理 | 全部上报；主管处理 |
 | 物料预警 | 缺料列表、库存更新、**新增物料** | 管理员、主管 |
-| 消息通知 | 计划下发、异常、缺料、派工等系统通知 | 按角色推送 |
+| 消息通知 | WebSocket 实时推送（计划下发、异常、缺料、派工） | 按角色推送 |
 | AI 智能客服 | Coze 对话，查进度/SOP/异常/班组任务 | 全部 |
 | AI 智能排产 | 优先级、瓶颈、派发建议，可一键应用到工单 | 管理员、主管 |
 | 系统管理 | 用户、角色权限、Coze 配置 | 管理员 |
@@ -28,7 +28,7 @@
 | 层次 | 技术 |
 |------|------|
 | 前端 | Vue 3、TypeScript、Vite、Element Plus、Pinia、Vue Router、ECharts |
-| 后端 | Spring Boot 3.3、MyBatis-Plus、Sa-Token、MySQL 8、Redis |
+| 后端 | Spring Boot 3.3、MyBatis-Plus、Sa-Token、WebSocket、MySQL 8、Redis |
 | AI | Coze Bot API + Workflow API（密钥仅服务端保存） |
 | 文档 | Knife4j → `http://localhost:8080/doc.html` |
 
@@ -66,7 +66,8 @@ sql/migrations/
 ├── 002_add_sys_role_permission.sql  # 角色权限表
 ├── 003_add_sys_notification.sql     # 系统通知表（新库可跳过，init 已含）
 ├── 004_add_user_avatar.sql          # 用户头像字段
-└── 005_dedupe_sys_notification.sql  # 清理重复通知（可选）
+├── 005_dedupe_sys_notification.sql  # 清理重复通知（可选）
+└── 006_add_foreign_keys.sql         # 核心业务外键约束
 ```
 
 PowerShell 示例：
@@ -107,7 +108,7 @@ npm run dev
 ```
 
 - 访问：`http://localhost:3088`
-- 开发环境通过 Vite 将 `/api` 代理到 `8080`
+- 开发环境通过 Vite 将 `/api`、`/ws` 代理到 `8080`
 
 根目录也可使用：
 
@@ -142,13 +143,29 @@ COZE_API_URL=https://api.coze.cn/v3
 4. 管理员登录 → **系统管理 → Coze 配置**，可保存数据库配置并做连通性测试
 5. 调用链：`前端 → POST /api/coze/chat` → Coze → 回显`；排产同理 `/api/coze/scheduling`
 
-> Token 勿提交 Git。Bot 人设、知识库、工作流说明见 [docs/Coze智能体提示词.md](docs/Coze智能体提示词.md)
+> Token 勿提交 Git。Bot 人设、知识库、工作流说明见 [docs/coze智能体的人设提示词.txt](docs/coze智能体的人设提示词.txt)
+
+## 消息通知（WebSocket）
+
+系统通知通过 **WebSocket** 实时推送到前端，登录后自动连接，新通知即时更新顶栏铃铛角标并弹出提示。
+
+| 项目 | 说明 |
+|------|------|
+| 端点 | `ws://localhost:8080/ws/notifications?token=<登录Token>` |
+| 鉴权 | 握手时携带 Sa-Token（query 参数 `token`） |
+| 推送时机 | 计划下发、工单派工、缺料预警、异常上报等业务创建通知后 |
+| 前端实现 | `frontend/src/stores/notifications.ts` |
+| 后端实现 | `backend/src/main/java/com/aimes/websocket/` |
+
+列表查询、标记已读仍走 REST：`GET /api/notifications`、`PUT /api/notifications/{id}/read`。
+
+开发环境下 Vite 已将 `/ws` 代理到后端；生产部署时需在 Nginx 中配置 WebSocket 转发（参考 `deploy/nginx.conf`）。
 
 ## 项目结构
 
 ```
 AI-MES/
-├── backend/              # Spring Boot 后端
+├── backend/              # Spring Boot 后端（含 WebSocket 通知推送）
 ├── frontend/             # Vue 3 前端（端口 3088）
 ├── sql/
 │   ├── init.sql          # 全量初始化
@@ -176,7 +193,8 @@ cd backend && mvn clean package -DskipTests   # 产出 target/ai-mes-backend-1.0
 | [题目二需求与评分对照](docs/题目2-工业生产车间智能管理智能体.md) | 课程考核要求 |
 | [系统设计文档](docs/设计文档.txt) | 架构、库表、接口 |
 | [前端 UI 设计文档](docs/前端UI设计文档.md) | 页面与组件规范 |
-| [Coze 智能体提示词](docs/Coze智能体提示词.md) | Bot / 工作流配置 |
+| [F-12 设备管理模块设计](docs/F-12-设备管理模块设计文档.md) | 设备台账、状态监控、异常/驾驶舱/排产互通 |
+| [Coze 智能体提示词](docs/coze智能体的人设提示词.txt) | Bot / 工作流配置 |
 
 ## 课程提交提醒
 

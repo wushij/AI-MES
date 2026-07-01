@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,6 +77,7 @@ public class DashboardService {
         stats.put("newExceptionCount", newExceptions);
         stats.put("materialAlertCount", materialAlerts);
         stats.put("newMaterialAlertCount", newMaterialAlerts);
+        stats.put("outputTrend", getOutputTrend());
         return stats;
     }
 
@@ -104,9 +106,7 @@ public class DashboardService {
 
     public Map<String, Object> alerts() {
         List<Map<String, Object>> latestExceptions = excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
-                        .orderByAsc(ExcEvent::getStatus)
-                        .orderByDesc(ExcEvent::getOccurTime)
-                        .last("limit 5"))
+                        .last("ORDER BY FIELD(status, 'open', 'processing', 'closed'), occur_time DESC limit 5"))
                 .stream()
                 .map(event -> {
                     Map<String, Object> row = new LinkedHashMap<>();
@@ -153,13 +153,13 @@ public class DashboardService {
                 .eq(ProdWorkOrder::getStatus, "done"));
         long todayDone = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
                 .eq(ProdWorkOrder::getStatus, "done")
-                .ge(ProdWorkOrder::getUpdatedTime, todayStart)
-                .lt(ProdWorkOrder::getUpdatedTime, tomorrowStart));
+                .ge(ProdWorkOrder::getDeadline, todayStart)
+                .lt(ProdWorkOrder::getDeadline, tomorrowStart));
         int completionRate = total == 0 ? 0 : (int) (done * 100 / total);
         List<ProdWorkOrder> todayDoneOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
                 .eq(ProdWorkOrder::getStatus, "done")
-                .ge(ProdWorkOrder::getUpdatedTime, todayStart)
-                .lt(ProdWorkOrder::getUpdatedTime, tomorrowStart));
+                .ge(ProdWorkOrder::getDeadline, todayStart)
+                .lt(ProdWorkOrder::getDeadline, tomorrowStart));
         long onTimeDone = todayDoneOrders.stream()
                 .filter(order -> order.getDeadline() == null || !order.getUpdatedTime().isAfter(order.getDeadline()))
                 .count();
@@ -197,5 +197,25 @@ public class DashboardService {
             return percent + "%";
         }
         return "0%";
+    }
+
+    private List<Map<String, Object>> getOutputTrend() {
+        List<Map<String, Object>> trend = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+        for (int i = 6; i >= 0; i--) {
+            LocalDate d = today.minusDays(i);
+            LocalDateTime start = d.atStartOfDay();
+            LocalDateTime end = d.plusDays(1).atStartOfDay();
+            long count = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
+                    .eq(ProdWorkOrder::getStatus, "done")
+                    .ge(ProdWorkOrder::getUpdatedTime, start)
+                    .lt(ProdWorkOrder::getUpdatedTime, end));
+            
+            Map<String, Object> point = new LinkedHashMap<>();
+            point.put("date", d.getMonthValue() + "/" + d.getDayOfMonth());
+            point.put("outputQty", count);
+            trend.add(point);
+        }
+        return trend;
     }
 }

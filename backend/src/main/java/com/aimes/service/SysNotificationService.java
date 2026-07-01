@@ -3,6 +3,7 @@ package com.aimes.service;
 import com.aimes.entity.SysNotification;
 import com.aimes.entity.SysUser;
 import com.aimes.mapper.SysNotificationMapper;
+import com.aimes.websocket.NotificationWebSocketManager;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ public class SysNotificationService {
 
     private final SysNotificationMapper sysNotificationMapper;
     private final AuthService authService;
+    private final NotificationWebSocketManager notificationWebSocketManager;
 
     public List<SysNotification> listUnread() {
         return list(0);
@@ -67,5 +69,6 @@ public class SysNotificationService {
         notification.setIsRead(0);
         notification.setCreateTime(java.time.LocalDateTime.now());
         sysNotificationMapper.insert(notification);
+        notificationWebSocketManager.pushToUser(userId, notification);
     }
 }

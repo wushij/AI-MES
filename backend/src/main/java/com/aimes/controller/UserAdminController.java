@@ -7,6 +7,7 @@ import com.aimes.dto.Requests.UserSaveRequest;
 import com.aimes.service.UserAdminService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -55,5 +56,11 @@ public class UserAdminController {
     @PostMapping("/{id}/toggle-status")
     public Result<Map<String, Object>> toggleStatus(@PathVariable Long id) {
         return Result.ok(userAdminService.toggleStatus(id));
+    }
+
+    @DeleteMapping("/{id}")
+    public Result<Void> delete(@PathVariable Long id) {
+        userAdminService.delete(id);
+        return Result.ok("删除成功", null);
     }
 }

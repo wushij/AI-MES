@@ -381,6 +381,61 @@ WHERE u.role = 'worker'
       AND sn.content = CONCAT('您有新的工单任务：工单 ', wo.order_no, '（产品：', wo.product_name, '）已下发至您的班组，请及时开工。')
   );
 
+-- -----------------------------------------------------------------------------
+-- 5. 外键约束（演示数据加载后添加，与应用层 ReferentialIntegrityService 双重保障）
+-- -----------------------------------------------------------------------------
+ALTER TABLE sys_user
+  ADD CONSTRAINT fk_user_team
+  FOREIGN KEY (team_id) REFERENCES prod_team(id)
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE prod_team
+  ADD CONSTRAINT fk_team_leader
+  FOREIGN KEY (leader_id) REFERENCES sys_user(id)
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE prod_plan
+  ADD CONSTRAINT fk_plan_created_by
+  FOREIGN KEY (created_by) REFERENCES sys_user(id)
+  ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE prod_work_order
+  ADD CONSTRAINT fk_order_plan
+  FOREIGN KEY (plan_id) REFERENCES prod_plan(id)
+  ON DELETE SET NULL ON UPDATE CASCADE,
+  ADD CONSTRAINT fk_order_team
+  FOREIGN KEY (team_id) REFERENCES prod_team(id)
+  ON DELETE SET NULL ON UPDATE CASCADE,
+  ADD CONSTRAINT fk_order_claim_user
+  FOREIGN KEY (claim_user_id) REFERENCES sys_user(id)
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE prod_process_record
+  ADD CONSTRAINT fk_process_order
+  FOREIGN KEY (work_order_id) REFERENCES prod_work_order(id)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE exc_event
+  ADD CONSTRAINT fk_exc_order
+  FOREIGN KEY (work_order_id) REFERENCES prod_work_order(id)
+  ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD CONSTRAINT fk_exc_reporter
+  FOREIGN KEY (reporter_id) REFERENCES sys_user(id)
+  ON DELETE RESTRICT ON UPDATE CASCADE,
+  ADD CONSTRAINT fk_exc_handler
+  FOREIGN KEY (handler_id) REFERENCES sys_user(id)
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE ai_chat_log
+  ADD CONSTRAINT fk_chat_user
+  FOREIGN KEY (user_id) REFERENCES sys_user(id)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE sys_notification
+  ADD CONSTRAINT fk_notification_user
+  FOREIGN KEY (user_id) REFERENCES sys_user(id)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- =============================================================================

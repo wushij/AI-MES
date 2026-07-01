@@ -1,5 +1,7 @@
 package com.aimes.controller;
 
+import cn.dev33.satoken.annotation.SaCheckRole;
+import cn.dev33.satoken.annotation.SaMode;
 import com.aimes.common.Result;
 import com.aimes.entity.SysNotification;
 import com.aimes.service.SysNotificationService;
@@ -9,6 +11,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/notifications")
+@SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
 public class SysNotificationController {
 
     private final SysNotificationService sysNotificationService;

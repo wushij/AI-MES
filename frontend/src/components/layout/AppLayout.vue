@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AiChatPanel from '@/components/AiChatPanel.vue'
 import AiFloatBtn from '@/components/AiFloatBtn.vue'
@@ -7,15 +7,30 @@ import AppHeader from './AppHeader.vue'
 import AppSidebar from './AppSidebar.vue'
 import { useAppStore } from '@/stores/app'
 import { useUserStore } from '@/stores/user'
+import { useNotificationStore } from '@/stores/notifications'
 import '@/assets/styles/layout-shell.css'
 
 const appStore = useAppStore()
 const userStore = useUserStore()
-const { backendUnavailable } = storeToRefs(userStore)
+const notificationStore = useNotificationStore()
+const { backendUnavailable, token } = storeToRefs(userStore)
 
 onMounted(() => {
   void appStore.loadWorkshopSummary()
 })
+
+watch(
+  token,
+  (nextToken) => {
+    if (nextToken) {
+      void notificationStore.fetchAll()
+      notificationStore.connect(nextToken)
+      return
+    }
+    notificationStore.reset()
+  },
+  { immediate: true }
+)
 </script>
 
 <template>

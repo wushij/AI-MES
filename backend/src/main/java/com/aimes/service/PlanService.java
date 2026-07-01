@@ -35,6 +35,7 @@ public class PlanService {
     private final AuthService authService;
     private final SysNotificationService sysNotificationService;
     private final WorkOrderNoService workOrderNoService;
+    private final ReferentialIntegrityService referentialIntegrityService;
 
     public Map<String, Object> list(long current, long size, String keyword, String status) {
         LambdaQueryWrapper<ProdPlan> wrapper = new LambdaQueryWrapper<ProdPlan>()
@@ -87,11 +88,7 @@ public class PlanService {
 
     @Transactional
     public void delete(Long id) {
-        long relatedOrders = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
-                .eq(ProdWorkOrder::getPlanId, id));
-        if (relatedOrders > 0) {
-            throw new BusinessException("计划已关联工单，不能删除");
-        }
+        referentialIntegrityService.ensurePlanDeletable(id);
         prodPlanMapper.deleteById(id);
     }
 

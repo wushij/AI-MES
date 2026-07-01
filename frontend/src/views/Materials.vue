@@ -71,9 +71,10 @@
             <StatusTag :status="row.status" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="right" width="140" align="center">
+        <el-table-column label="操作" fixed="right" width="200" align="center">
           <template #default="{ row }">
             <el-button size="small" class="action-btn action-btn--edit" @click="openStockDialog(row)">更新库存</el-button>
+            <el-button size="small" class="action-btn action-btn--delete" :loading="deleteLoading === row.id" @click="removeMaterial(row)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -220,7 +221,7 @@
 </template>
 
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Box, Plus, Minus, EditPen } from '@element-plus/icons-vue'
@@ -233,6 +234,7 @@ interface MaterialRow { id: string | number; code: string; name: string; unit: s
 const loading = ref(false)
 const submitting = ref(false)
 const submittingCreate = ref(false)
+const deleteLoading = ref<string | number | null>(null)
 const materials = ref<MaterialRow[]>([])
 const currentMaterial = ref<MaterialRow | null>(null)
 const stockDialogVisible = ref(false)
@@ -460,6 +462,31 @@ async function submitStock() {
   }
 }
 
+async function removeMaterial(row: MaterialRow) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除物料「${row.name}」（${row.code}）？此操作不可恢复。`,
+      '删除物料',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  deleteLoading.value = row.id
+  try {
+    const { deleteMaterial } = await import('@/api/materials')
+    await deleteMaterial(row.id)
+    ElMessage.success('物料已删除')
+    await loadStats()
+    await loadMaterials()
+  } catch (error) {
+    console.error(error)
+    ElMessage.error(error instanceof Error ? error.message : '删除物料失败')
+  } finally {
+    deleteLoading.value = null
+  }
+}
+
 function resetFilters() {
   filters.keyword = ''
   filters.status = ''
@@ -539,8 +566,8 @@ function rowClassName({ row }: { row: MaterialRow }) {
   color: #fa8c16;
   font-weight: 700;
 }
-:deep(.warning-row) {
-  --el-table-tr-bg-color: rgba(250, 140, 22, 0.06);
+:deep(.warning-row) td.el-table__cell {
+  background-color: rgba(250, 140, 22, 0.06) !important;
 }
 
 .toolbar__input :deep(.el-input__wrapper),
@@ -597,6 +624,15 @@ function rowClassName({ row }: { row: MaterialRow }) {
 .action-btn--edit:hover {
   background: rgba(79, 70, 229, 0.05) !important;
   border-color: #4f46e5 !important;
+}
+
+.action-btn--delete {
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  color: #ef4444 !important;
+}
+.action-btn--delete:hover {
+  background: rgba(239, 68, 68, 0.05) !important;
+  border-color: #ef4444 !important;
 }
 
 /* Custom Stock Dialog Styles */

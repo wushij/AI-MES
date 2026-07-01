@@ -8,6 +8,7 @@ import com.aimes.dto.Requests.MaterialUpdateRequest;
 import com.aimes.service.MaterialService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -50,5 +51,12 @@ public class MaterialController {
     @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
     public Result<Map<String, Object>> update(@PathVariable Long id, @Valid @RequestBody MaterialUpdateRequest request) {
         return Result.ok(materialService.update(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    public Result<Void> delete(@PathVariable Long id) {
+        materialService.delete(id);
+        return Result.ok("删除成功", null);
     }
 }

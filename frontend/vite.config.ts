@@ -20,6 +20,11 @@ export default defineConfig({
         // Coze 工作流测试可能超过 30s，dev 代理需同步放宽
         timeout: 180000,
         proxyTimeout: 180000
+      },
+      '/ws': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        ws: true
       }
     }
   }

@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -76,7 +77,7 @@ public class WorkOrderService {
                 .eq(StringUtils.hasText(status), ProdWorkOrder::getStatus, status)
                 .eq(queryTeamId != null, ProdWorkOrder::getTeamId, queryTeamId)
                 .orderByAsc(ProdWorkOrder::getPriority)
-                .orderByDesc(ProdWorkOrder::getDeadline)
+                .orderByAsc(ProdWorkOrder::getDeadline)
                 .orderByDesc(ProdWorkOrder::getId);
 
         Page<ProdWorkOrder> page = prodWorkOrderMapper.selectPage(new Page<>(current, size), wrapper);
@@ -343,9 +344,22 @@ public class WorkOrderService {
 
         List<Map<String, Object>> pending = listByStatuses(teamId, List.of("assigned"));
         List<Map<String, Object>> producing = listByStatuses(teamId, List.of("producing", "exception"));
-        List<Map<String, Object>> doneToday = listByStatuses(teamId, List.of("done"));
+        List<Map<String, Object>> doneToday = listDoneToday(teamId);
 
         return Map.of("pending", pending, "producing", producing, "doneToday", doneToday);
+    }
+
+    private List<Map<String, Object>> listDoneToday(Long teamId) {
+        LocalDate today = LocalDate.now();
+        LocalDateTime todayStart = today.atStartOfDay();
+        LocalDateTime tomorrowStart = today.plusDays(1).atStartOfDay();
+        LambdaQueryWrapper<ProdWorkOrder> wrapper = new LambdaQueryWrapper<ProdWorkOrder>()
+                .eq(ProdWorkOrder::getStatus, "done")
+                .ge(ProdWorkOrder::getDeadline, todayStart)
+                .lt(ProdWorkOrder::getDeadline, tomorrowStart)
+                .eq(teamId != null, ProdWorkOrder::getTeamId, teamId)
+                .orderByAsc(ProdWorkOrder::getPriority);
+        return prodWorkOrderMapper.selectList(wrapper).stream().map(this::toView).toList();
     }
 
     private List<Map<String, Object>> listByStatuses(Long teamId, List<String> statuses) {

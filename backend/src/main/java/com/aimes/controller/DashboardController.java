@@ -1,5 +1,7 @@
 package com.aimes.controller;
 
+import cn.dev33.satoken.annotation.SaCheckRole;
+import cn.dev33.satoken.annotation.SaMode;
 import com.aimes.common.Result;
 import com.aimes.service.DashboardService;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +15,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/dashboard")
 @RequiredArgsConstructor
+@SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
 public class DashboardController {
 
     private final DashboardService dashboardService;

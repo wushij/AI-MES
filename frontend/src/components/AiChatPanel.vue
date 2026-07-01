@@ -130,7 +130,7 @@ async function submit() {
   border: none !important;
   box-shadow: none !important;
   background: transparent !important;
-  padding: 4px 0 !important;
+  padding: 4px 8px !important;
   font-size: 13px;
   color: #1e293b;
   min-height: 20px !important;

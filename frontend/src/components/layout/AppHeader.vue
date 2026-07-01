@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Expand, Fold, Bell, ArrowDown, UserFilled, Warning, InfoFilled, Calendar } from '@element-plus/icons-vue'
+import { storeToRefs } from 'pinia'
+import { Expand, Fold, Bell, ArrowDown, UserFilled } from '@element-plus/icons-vue'
 import AppThemePicker from './AppThemePicker.vue'
 import { useAppStore } from '@/stores/app'
 import { useUserStore } from '@/stores/user'
+import { useNotificationStore } from '@/stores/notifications'
 
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const userStore = useUserStore()
+const notificationStore = useNotificationStore()
+const { unreadItems, readItems, unreadCount } = storeToRefs(notificationStore)
 
 const currentTitle = computed(() => {
   const title = route.meta?.title
@@ -23,6 +27,8 @@ const roleLabel = computed(() => {
   return '访客'
 })
 
+const activeTab = ref('unread')
+
 async function handleCommand(command: string | number | object) {
   if (command === 'logout') {
     await userStore.logout()
@@ -32,93 +38,29 @@ async function handleCommand(command: string | number | object) {
   }
 }
 
-import { getNotifications, markAllNotificationsAsRead, markNotificationAsRead } from '@/api/notifications'
-import { onMounted } from 'vue'
-
-// Notification center reactive state
-const activeTab = ref('unread')
-const allNotifications = ref<any[]>([])
-
-const unreadNotifications = computed(() => allNotifications.value.filter(n => !n.isRead))
-const readNotifications = computed(() => allNotifications.value.filter(n => n.isRead))
-const unreadCount = computed(() => unreadNotifications.value.length)
-
-function isNotificationRead(value: unknown) {
-  return value === 1 || value === true || value === '1'
-}
-
-async function loadNotifications() {
-  try {
-    const list = await getNotifications()
-    allNotifications.value = list.map((item) => ({
-      id: item.id,
-      type: item.type,
-      icon: item.type === 'danger' ? InfoFilled : (item.type === 'warning' ? Warning : Calendar),
-      text: item.content,
-      time: formatRelativeTime(item.createTime),
-      target: item.targetUrl,
-      isRead: isNotificationRead(item.isRead)
-    }))
-  } catch (error) {
-    console.error('加载系统通知失败:', error)
-  }
-}
-
 function handleNotificationPopoverShow() {
-  void loadNotifications()
+  void notificationStore.fetchAll()
 }
-
-function formatRelativeTime(timeStr: string) {
-  if (!timeStr) return '刚才'
-  try {
-    const d = new Date(timeStr.replace(' ', 'T'))
-    const diff = Date.now() - d.getTime()
-    if (diff < 60000) return '刚才'
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
-    return `${d.getMonth() + 1}月${d.getDate()}日`
-  } catch {
-    return '刚才'
-  }
-}
-
-onMounted(() => {
-  void loadNotifications()
-})
-
-watch(() => userStore.token, (token) => {
-  if (token) {
-    void loadNotifications()
-  } else {
-    allNotifications.value = []
-  }
-})
 
 async function markAllAsRead() {
   try {
-    await markAllNotificationsAsRead()
-    allNotifications.value = allNotifications.value.map(n => ({ ...n, isRead: true }))
+    await notificationStore.markAllAsRead()
   } catch (error) {
     console.error('标记全部已读失败:', error)
   }
 }
 
-async function handleNotificationClick(item: any) {
+async function handleNotificationClick(item: { id: number; target: string }) {
   try {
-    await markNotificationAsRead(item.id)
-    allNotifications.value = allNotifications.value.map(n => n.id === item.id ? { ...n, isRead: true } : n)
-    router.push(item.target)
+    await notificationStore.markAsRead(item.id)
+    await router.push(item.target)
   } catch (error) {
     console.error('标记单条已读失败:', error)
   }
 }
 
-function handleReadNotificationClick(item: any) {
-  router.push(item.target)
-}
-
-function viewAll() {
-  void markAllAsRead()
+function handleReadNotificationClick(item: { target: string }) {
+  void router.push(item.target)
 }
 </script>
 
@@ -159,20 +101,20 @@ function viewAll() {
             </el-badge>
           </div>
         </template>
-        
+
         <div class="notification-panel">
           <div class="panel-title">
             <span>通知中心</span>
-            <el-button v-if="unreadNotifications.length > 0" link type="primary" size="small" @click="markAllAsRead">全部已读</el-button>
+            <el-button v-if="unreadItems.length > 0" link type="primary" size="small" @click="markAllAsRead">全部已读</el-button>
           </div>
-          
+
           <el-tabs v-model="activeTab" class="notification-tabs">
             <el-tab-pane name="unread">
               <template #label>
-                <span>未读 ({{ unreadNotifications.length }})</span>
+                <span>未读 ({{ unreadItems.length }})</span>
               </template>
-              <div v-if="unreadNotifications.length > 0" class="notification-list">
-                <div v-for="item in unreadNotifications" :key="item.id" class="notification-item" @click="handleNotificationClick(item)">
+              <div v-if="unreadItems.length > 0" class="notification-list">
+                <div v-for="item in unreadItems" :key="item.id" class="notification-item" @click="handleNotificationClick(item)">
                   <div class="item-icon" :class="`item-icon--${item.type}`">
                     <el-icon><component :is="item.icon" /></el-icon>
                   </div>
@@ -187,10 +129,10 @@ function viewAll() {
 
             <el-tab-pane name="read">
               <template #label>
-                <span>已读 ({{ readNotifications.length }})</span>
+                <span>已读 ({{ readItems.length }})</span>
               </template>
-              <div v-if="readNotifications.length > 0" class="notification-list">
-                <div v-for="item in readNotifications" :key="item.id" class="notification-item" @click="handleReadNotificationClick(item)">
+              <div v-if="readItems.length > 0" class="notification-list">
+                <div v-for="item in readItems" :key="item.id" class="notification-item" @click="handleReadNotificationClick(item)">
                   <div class="item-icon is-read-icon" :class="`item-icon--${item.type}`">
                     <el-icon><component :is="item.icon" /></el-icon>
                   </div>
@@ -334,20 +276,6 @@ function viewAll() {
   font-size: 11px;
   color: #94a3b8;
   text-align: left;
-}
-
-.panel-footer {
-  display: flex;
-  justify-content: center;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #f1f5f9;
-}
-
-.view-all-btn {
-  font-size: 13px;
-  font-weight: 600;
-  width: 100%;
 }
 
 .is-read-text {

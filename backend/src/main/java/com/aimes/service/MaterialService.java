@@ -35,7 +35,7 @@ public class MaterialService {
                                 .or()
                                 .like(MatMaterial::getMaterialName, keyword))
                         .eq(StringUtils.hasText(status), MatMaterial::getAlertStatus, status)
-                        .orderByAsc(MatMaterial::getAlertStatus)
+                        .orderByDesc(MatMaterial::getAlertStatus)
                         .orderByAsc(MatMaterial::getStockQty))
                 .stream()
                 .map(this::toView)
@@ -131,6 +131,15 @@ public class MaterialService {
         }
         
         return toView(material);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        MatMaterial material = matMaterialMapper.selectById(id);
+        if (material == null) {
+            throw new BusinessException("物料不存在");
+        }
+        matMaterialMapper.deleteById(id);
     }
 
     private Map<String, Object> toView(MatMaterial material) {
