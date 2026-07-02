@@ -2,6 +2,14 @@ import axios, { type AxiosError, type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import { handleUnauthorized } from '@/utils/session'
 
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    skipAuth?: boolean
+    skipErrorHandler?: boolean
+    skipUnauthorizedRedirect?: boolean
+  }
+}
+
 export const TOKEN_STORAGE_KEY = 'ai_mes_access_token'
 export const USER_STORAGE_KEY = 'ai_mes_user'
 
@@ -31,11 +39,40 @@ function logApiIssue(level: 'error' | 'warn', message: string, detail?: unknown)
   logger(`[API] ${message}`)
 }
 
-function createApiError(message: string, apiCode?: number, httpStatus?: number) {
+export function createApiError(message: string, apiCode?: number, httpStatus?: number) {
   const error = new Error(message) as ApiRequestError
   error.apiCode = apiCode
   error.httpStatus = httpStatus
   return error
+}
+
+/** 从 ApiRequestError 或 AxiosError 中解析业务/HTTP 状态码 */
+export function resolveErrorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const err = error as ApiRequestError & AxiosError<ApiResult>
+  if (typeof err.apiCode === 'number') return err.apiCode
+  if (typeof err.httpStatus === 'number') return err.httpStatus
+  if (typeof err.response?.status === 'number') return err.response.status
+  if (typeof err.response?.data?.code === 'number') return err.response.data.code
+  return undefined
+}
+
+export function isNetworkFailure(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const err = error as AxiosError
+  if (!err.response) return true
+  return err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK'
+}
+
+export function normalizeRequestError(error: AxiosError<ApiResult>): ApiRequestError {
+  const apiCode = error.response?.data?.code
+  const httpStatus = error.response?.status
+  const message = error.response?.data?.message || error.message || '网络异常，请重试'
+  return createApiError(message, apiCode, httpStatus)
+}
+
+function isUnauthorizedStatus(status?: number) {
+  return status === 401 || status === 403
 }
 
 const request = axios.create({
@@ -62,7 +99,7 @@ request.interceptors.response.use(
     if (body && typeof body === 'object' && 'code' in body && 'data' in body) {
       const result = body as ApiResult
       if (result.code !== 200) {
-        if ((result.code === 401 || result.code === 403) && !cfg.skipUnauthorizedRedirect) {
+        if (isUnauthorizedStatus(result.code) && !cfg.skipUnauthorizedRedirect) {
           logApiIssue('warn', `未授权 (${result.code}): ${result.message}`)
           void handleUnauthorized()
         } else if (cfg.skipErrorHandler) {
@@ -81,22 +118,20 @@ request.interceptors.response.use(
   },
   (error: AxiosError<ApiResult>) => {
     const cfg = error.config as ExtendedRequestConfig | undefined
-    const message = error.response?.data?.message || error.message || '网络异常，请重试'
+    const normalized = normalizeRequestError(error)
+    const status = resolveErrorStatus(normalized)
 
-    if (error.response?.status === 401 && !cfg?.skipUnauthorizedRedirect) {
-      logApiIssue('warn', `未授权 (401): ${message}`, error)
-      void handleUnauthorized()
-    } else if (error.response?.status === 403 && !cfg?.skipUnauthorizedRedirect) {
-      logApiIssue('warn', `无权限 (403): ${message}`, error)
+    if (isUnauthorizedStatus(status) && !cfg?.skipUnauthorizedRedirect) {
+      logApiIssue('warn', `未授权 (${status}): ${normalized.message}`, error)
       void handleUnauthorized()
     } else if (!cfg?.skipErrorHandler) {
-      logApiIssue('error', message, error)
-      ElMessage.error(message)
+      logApiIssue('error', normalized.message, error)
+      ElMessage.error(normalized.message)
     } else {
-      logApiIssue('warn', message, error)
+      logApiIssue('warn', normalized.message, error)
     }
 
-    return Promise.reject(error)
+    return Promise.reject(normalized)
   }
 )
 

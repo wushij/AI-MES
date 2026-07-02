@@ -6,6 +6,7 @@ import {
   getChatSessions,
   sendChatMessage
 } from '@/api/ai'
+import { getCozeWelcomeMessage } from '@/api/coze'
 import { normalizeList } from '@/utils/normalizeList'
 import { USER_STORAGE_KEY } from '@/api/request'
 
@@ -33,11 +34,14 @@ function nowTime() {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 }
 
-function getWelcomeMessage(sessionId: string | number): ChatMessage[] {
+const DEFAULT_WELCOME_MESSAGE =
+  '您好，我是 AI-MES 智能助手，可协助查询工单进度、异常处理及 SOP 指导。'
+
+function getWelcomeMessage(sessionId: string | number, content = DEFAULT_WELCOME_MESSAGE): ChatMessage[] {
   return [{
     id: `welcome-${sessionId}`,
     role: 'assistant',
-    content: '您好，我是 AI-MES 智能助手，可协助查询工单进度、异常处理及 SOP 指导。',
+    content,
     createdAt: nowTime()
   }]
 }
@@ -65,6 +69,7 @@ function readCurrentUserId(): string | number | null {
 export const useAiChatStore = defineStore('aiChat', () => {
   const initialized = ref(false)
   const ownerUserId = ref<string | number | null>(null)
+  const welcomeMessage = ref(DEFAULT_WELCOME_MESSAGE)
   const sessions = ref<ChatSession[]>([])
   const sessionMessages = ref<Record<string, ChatMessage[]>>({})
   const activeSessionId = ref<string | number | null>(null)
@@ -108,13 +113,39 @@ export const useAiChatStore = defineStore('aiChat', () => {
     ) ?? null
   }
 
+  function refreshWelcomeOnlySessions() {
+    const nextMessages = { ...sessionMessages.value }
+    let changed = false
+    for (const [key, msgs] of Object.entries(nextMessages)) {
+      if (!isWelcomeOnly(msgs)) continue
+      const sessionId = key
+      nextMessages[key] = getWelcomeMessage(sessionId, welcomeMessage.value)
+      changed = true
+    }
+    if (changed) {
+      sessionMessages.value = nextMessages
+    }
+  }
+
+  async function loadWelcomeMessage() {
+    try {
+      const data = await getCozeWelcomeMessage()
+      if (data.welcomeMessage?.trim()) {
+        welcomeMessage.value = data.welcomeMessage.trim()
+        refreshWelcomeOnlySessions()
+      }
+    } catch {
+      /* keep current welcome message */
+    }
+  }
+
   function activateSession(session: ChatSession) {
     activeSessionId.value = session.id
     session.updatedAt = new Date().toISOString()
     sessions.value = [session, ...sessions.value.filter((item) => item.id !== session.id)]
     const key = getSessionKey(session.id)
     if (!sessionMessages.value[key]?.length) {
-      setSessionMessages(key, getWelcomeMessage(session.id))
+      setSessionMessages(key, getWelcomeMessage(session.id, welcomeMessage.value))
     }
   }
 
@@ -171,7 +202,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
     }
     activeSessionId.value = session.id
     sessions.value = [session, ...sessions.value.filter((item) => item.id !== session.id)]
-    setSessionMessages(getSessionKey(session.id), getWelcomeMessage(session.id))
+    setSessionMessages(getSessionKey(session.id), getWelcomeMessage(session.id, welcomeMessage.value))
     return session
   }
 
@@ -204,6 +235,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
   async function ensureInitialized() {
     if (!syncOwnerUser()) return
     if (initialized.value) return
+    await loadWelcomeMessage()
     await loadSessions()
     if (!sessions.value.length) {
       createLocalSession('新对话')
@@ -282,10 +314,10 @@ export const useAiChatStore = defineStore('aiChat', () => {
               content: item.content,
               createdAt: item.createdAt
             }))
-          : getWelcomeMessage(session.id)
+          : getWelcomeMessage(session.id, welcomeMessage.value)
       )
     } catch {
-      setSessionMessages(key, getWelcomeMessage(session.id))
+      setSessionMessages(key, getWelcomeMessage(session.id, welcomeMessage.value))
     }
     enrichSessionFullTitle(session)
   }
@@ -323,7 +355,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
     if (!sessionId) return
 
     const key = getSessionKey(sessionId)
-    const currentMessages = sessionMessages.value[key] ?? getWelcomeMessage(sessionId)
+    const currentMessages = sessionMessages.value[key] ?? getWelcomeMessage(sessionId, welcomeMessage.value)
     const targetMessages = isWelcomeOnly(currentMessages) ? [] : [...currentMessages]
 
     const userMessage: ChatMessage = {
@@ -408,6 +440,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
     sending,
     isFreshSession,
     ensureInitialized,
+    loadWelcomeMessage,
     loadSessions,
     startConversation,
     selectSession,

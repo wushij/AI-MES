@@ -308,7 +308,7 @@ async function handleChangePassword() {
       passwordForm.oldPassword = ''
       passwordForm.newPassword = ''
       passwordForm.confirmPassword = ''
-      passwordFormRef.value.resetFields()
+      passwordFormRef.value?.resetFields()
     } catch (err: any) {
       console.error(err)
       ElMessage.error(err?.response?.data?.message || '原密码校验错误，更新失败')

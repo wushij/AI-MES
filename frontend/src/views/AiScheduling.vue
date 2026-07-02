@@ -253,7 +253,7 @@ async function generateSuggestions() {
       planDate: form.planDate,
       workOrderIds: form.selectedWorkOrderIds.map((id) => Number(id))
     })
-    const payload = (response as Record<string, unknown>) ?? {}
+    const payload = (response as unknown as Record<string, unknown>) ?? {}
     resultMode.value = payload.mode === 'live' ? 'live' : 'mock'
     const dataObj = (payload.result as Record<string, unknown>) ?? payload
     result.value = mapSchedulingResult(dataObj)

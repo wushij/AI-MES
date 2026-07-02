@@ -26,6 +26,10 @@ export function getCozeConfig() {
   return request.get<CozeConfig>('/coze/config').then((res) => res.data)
 }
 
+export function getCozeWelcomeMessage() {
+  return request.get<{ welcomeMessage: string }>('/coze/welcome').then((res) => res.data)
+}
+
 export function saveCozeConfig(payload: CozeConfigSavePayload) {
   return request.put<CozeConfig>('/coze/config', payload).then((res) => res.data)
 }

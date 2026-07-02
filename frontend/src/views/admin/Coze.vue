@@ -5,7 +5,12 @@ import { Connection, Setting, CircleCheckFilled, CircleCloseFilled } from '@elem
 import PageHeader from '@/components/common/PageHeader.vue'
 import AdminSubNav from '@/components/admin/AdminSubNav.vue'
 import { getCozeConfig, saveCozeConfig, testCozeChatHealth, testCozeWorkflowHealth } from '@/api/coze'
+import { useAiChatStore } from '@/stores/aiChat'
+import { useChatStore } from '@/stores/chat'
 import type { CozeConfig, CozeHealthCheckItem, CozeHealthResult } from '@/types'
+
+const chatStore = useChatStore()
+const aiChatStore = useAiChatStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -126,6 +131,7 @@ async function handleSave() {
     ElMessage.success('Coze 配置已保存')
     healthResult.value = null
     await loadConfig()
+    await Promise.all([chatStore.loadWelcomeMessage(), aiChatStore.loadWelcomeMessage()])
   } catch {
     ElMessage.error('保存失败，请检查填写内容')
   } finally {

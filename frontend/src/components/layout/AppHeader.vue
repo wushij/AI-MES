@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Expand, Fold, Bell, ArrowDown, UserFilled } from '@element-plus/icons-vue'
 import AppThemePicker from './AppThemePicker.vue'
 import { useAppStore } from '@/stores/app'
@@ -47,6 +48,29 @@ async function markAllAsRead() {
     await notificationStore.markAllAsRead()
   } catch (error) {
     console.error('标记全部已读失败:', error)
+  }
+}
+
+async function clearRead() {
+  try {
+    await ElMessageBox.confirm(
+      '将删除所有已读通知，此操作不可撤销。是否继续？',
+      '确认清除已读通知',
+      {
+        confirmButtonText: '确认清空',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await notificationStore.clearRead()
+    ElMessage.success('已清除全部已读通知')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') {
+      ElMessage.info('已取消清除操作')
+      return
+    }
+    console.error('清除已读通知失败:', error)
+    ElMessage.error('清除已读通知失败，请稍后重试')
   }
 }
 
@@ -105,7 +129,24 @@ function handleReadNotificationClick(item: { target: string }) {
         <div class="notification-panel">
           <div class="panel-title">
             <span>通知中心</span>
-            <el-button v-if="unreadItems.length > 0" link type="primary" size="small" @click="markAllAsRead">全部已读</el-button>
+            <el-button
+              v-if="activeTab === 'unread' && unreadItems.length > 0"
+              link
+              type="primary"
+              size="small"
+              @click="markAllAsRead"
+            >
+              全部已读
+            </el-button>
+            <el-button
+              v-else-if="activeTab === 'read' && readItems.length > 0"
+              link
+              type="danger"
+              size="small"
+              @click="clearRead"
+            >
+              清除已读
+            </el-button>
           </div>
 
           <el-tabs v-model="activeTab" class="notification-tabs">

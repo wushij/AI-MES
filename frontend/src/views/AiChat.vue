@@ -556,32 +556,31 @@ function renderMarkdown(text: string) {
 
 .markdown-body :deep(table) {
   width: 100%;
-  min-width: 300px;
   table-layout: fixed;
   border-collapse: collapse;
   margin: 10px 0;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .markdown-body :deep(th),
 .markdown-body :deep(td) {
   border: 1px solid #e2e8f0;
-  padding: 8px 10px;
+  padding: 6px;
   text-align: left;
   vertical-align: top;
-  word-break: keep-all;
-  overflow-wrap: break-word;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .markdown-body :deep(th:first-child),
 .markdown-body :deep(td:first-child) {
-  width: 32%;
-  white-space: nowrap;
+  width: auto;
 }
 
 .markdown-body :deep(th:last-child),
 .markdown-body :deep(td:last-child) {
-  width: 68%;
+  width: auto;
 }
 
 .markdown-body :deep(th) { background: #f8fafc; font-weight: 600; }

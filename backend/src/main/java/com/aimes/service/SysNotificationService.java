@@ -52,6 +52,14 @@ public class SysNotificationService {
     }
 
     @Transactional
+    public void clearRead() {
+        SysUser user = authService.currentUser();
+        sysNotificationMapper.delete(new LambdaQueryWrapper<SysNotification>()
+                .eq(SysNotification::getUserId, user.getId())
+                .eq(SysNotification::getIsRead, 1));
+    }
+
+    @Transactional
     public void createNotification(Long userId, String title, String content, String type, String targetUrl) {
         long duplicateCount = sysNotificationMapper.selectCount(new LambdaQueryWrapper<SysNotification>()
                 .eq(SysNotification::getUserId, userId)

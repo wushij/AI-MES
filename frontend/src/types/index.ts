@@ -35,6 +35,8 @@ export interface UserProfile {
   teamName?: string
   status?: number
   createTime?: string
+  permissions?: string[]
+  fullAccess?: boolean
 }
 
 export interface LoginPayload {
@@ -271,6 +273,7 @@ export interface AppRouteMeta {
   section?: string
   requiresAuth?: boolean
   roles?: UserRole[]
+  permission?: string | string[]
   breadcrumb?: string[]
 }
 
@@ -279,4 +282,5 @@ export interface NavItem {
   label: string
   icon: Component
   roles?: UserRole[]
+  permission?: string | string[]
 }

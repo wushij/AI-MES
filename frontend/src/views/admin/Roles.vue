@@ -21,16 +21,21 @@
         <el-table-column label="权限范围" min-width="480" align="center">
           <template #default="{ row }">
             <div class="tags-container">
-              <el-tag
-                v-for="perm in row.permissions"
-                :key="perm"
-                size="small"
-                effect="light"
-                class="perm-tag"
-              >
-                {{ perm }}
+              <el-tag v-if="row.fullAccess" size="small" effect="dark" class="perm-tag perm-tag--full">
+                全部权限
               </el-tag>
-              <span v-if="!row.permissions.length" class="empty-text">暂无分配权限</span>
+              <template v-else>
+                <el-tag
+                  v-for="perm in row.permissions"
+                  :key="perm"
+                  size="small"
+                  effect="light"
+                  class="perm-tag"
+                >
+                  {{ perm }}
+                </el-tag>
+                <span v-if="!row.permissions.length" class="empty-text">暂无分配权限</span>
+              </template>
             </div>
           </template>
         </el-table-column>
@@ -65,12 +70,17 @@
 
       <div v-if="currentRole" class="custom-dialog-body">
         <div class="dialog-tip-box">
-          <p>请勾选该角色允许访问的菜单模块和功能。点击确认后将立刻生效。</p>
+          <p v-if="isAdminRole">管理员默认拥有全部功能权限，无需单独配置。</p>
+          <p v-else>请勾选该角色允许访问的菜单模块和功能。点击确认后将立刻生效。</p>
         </div>
 
         <el-form label-position="top" class="edit-permissions-form">
           <el-form-item label="可访问功能模块">
-            <el-checkbox-group v-model="selectedPermissions" class="permissions-checkbox-grid">
+            <el-checkbox-group
+              v-model="selectedPermissions"
+              class="permissions-checkbox-grid"
+              :disabled="isAdminRole"
+            >
               <el-checkbox
                 v-for="perm in allAvailablePermissions"
                 :key="perm"
@@ -86,8 +96,8 @@
 
       <template #footer>
         <div class="dialog-footer-custom">
-          <el-button class="btn-cancel" @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" class="btn-submit" @click="savePermissions">
+          <el-button class="btn-cancel" @click="dialogVisible = false">{{ isAdminRole ? '关闭' : '取消' }}</el-button>
+          <el-button v-if="!isAdminRole" type="primary" class="btn-submit" @click="savePermissions">
             确认保存
           </el-button>
         </div>
@@ -97,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Setting } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -118,6 +128,8 @@ const currentRole = ref<RoleItem | null>(null)
 const selectedPermissions = ref<string[]>([])
 const loading = ref(false)
 
+const isAdminRole = computed(() => currentRole.value?.id === 'admin' || Boolean(currentRole.value?.fullAccess))
+
 async function loadRoles() {
   loading.value = true
   try {
@@ -136,7 +148,7 @@ onMounted(() => {
 
 function handleEdit(row: RoleItem) {
   currentRole.value = row
-  selectedPermissions.value = [...row.permissions]
+  selectedPermissions.value = row.fullAccess ? [...allAvailablePermissions] : [...row.permissions]
   dialogVisible.value = true
 }
 
@@ -145,7 +157,7 @@ async function savePermissions() {
   
   try {
     await updateRolePermissions(currentRole.value.id, selectedPermissions.value)
-    ElMessage.success('权限保存成功')
+    ElMessage.success('权限保存成功，已登录用户刷新页面后生效')
     dialogVisible.value = false
     await loadRoles()
   } catch (error) {
@@ -187,6 +199,12 @@ async function savePermissions() {
   background-color: rgba(79, 70, 229, 0.05) !important;
   border-color: rgba(79, 70, 229, 0.15) !important;
   color: #4f46e5 !important;
+}
+
+.perm-tag--full {
+  background-color: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #fff !important;
 }
 
 .empty-text {

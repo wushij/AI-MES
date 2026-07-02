@@ -539,7 +539,7 @@ async function openEditDialog(row: WorkOrderRow) {
   editDialogVisible.value = true
   try {
     const api = await import('@/api/workOrders')
-    const detail = (await api.getWorkOrderDetail(row.id)) as Record<string, unknown>
+    const detail = (await api.getWorkOrderDetail(row.id)) as unknown as Record<string, unknown>
     Object.assign(editForm, {
       productName: String(detail.productName ?? row.productName),
       processName: String(detail.processName ?? row.currentProcess),

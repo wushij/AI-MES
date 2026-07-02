@@ -27,6 +27,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final CaptchaService captchaService;
     private final LoginProtectionService loginProtectionService;
+    private final RoleService roleService;
 
     public Map<String, Object> login(LoginRequest request) {
         String ip = ClientIpUtil.current();
@@ -90,6 +91,8 @@ public class AuthService {
         data.put("teamId", user.getTeamId());
         data.put("teamName", team == null ? null : team.getTeamName());
         data.put("status", user.getStatus());
+        data.put("permissions", roleService.getPermissionsByRoleKey(user.getRole()));
+        data.put("fullAccess", roleService.hasFullAccess(user.getRole()));
         return data;
     }
 

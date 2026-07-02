@@ -209,8 +209,11 @@ INSERT INTO sys_coze_config (id, bot_id, api_url, workflow_id, welcome_message, 
 
 -- 角色权限初始数据
 INSERT INTO sys_role_permission (role_key, permission) VALUES
-('admin', '系统配置'), ('admin', '用户管理'), ('admin', 'Coze 配置'),
-('supervisor', '生产计划'), ('supervisor', '班组'), ('supervisor', '物料'), ('supervisor', '排产'),
+('admin', '生产计划'), ('admin', '工单管理'), ('admin', '班组'), ('admin', '物料'), ('admin', '排产'),
+('admin', '工序进度'), ('admin', '工单反馈'), ('admin', '异常上报'), ('admin', 'AI 客服'),
+('admin', '用户管理'), ('admin', '角色管理'), ('admin', 'Coze 配置'), ('admin', '系统配置'),
+('supervisor', '生产计划'), ('supervisor', '工单管理'), ('supervisor', '班组'), ('supervisor', '物料'),
+('supervisor', '排产'), ('supervisor', '异常上报'), ('supervisor', 'AI 客服'),
 ('worker', '工序进度'), ('worker', '工单反馈'), ('worker', '异常上报'), ('worker', 'AI 客服');
 
 -- -----------------------------------------------------------------------------

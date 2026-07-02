@@ -24,19 +24,26 @@ const appStore = useAppStore()
 const userStore = useUserStore()
 
 const navItems: NavItem[] = [
-  { path: '/dashboard', label: '首页驾驶舱', icon: HomeFilled, roles: ['admin', 'supervisor', 'worker'] },
-  { path: '/plans', label: '生产计划', icon: Calendar, roles: ['admin', 'supervisor'] },
-  { path: '/work-orders', label: '工单管理', icon: List, roles: ['admin', 'supervisor', 'worker'] },
-  { path: '/process', label: '工序进度', icon: Operation, roles: ['admin', 'worker'] },
-  { path: '/teams', label: '班组管理', icon: UserFilled, roles: ['admin', 'supervisor'] },
-  { path: '/exceptions', label: '异常管理', icon: Warning, roles: ['admin', 'supervisor', 'worker'] },
-  { path: '/materials', label: '物料预警', icon: Box, roles: ['admin', 'supervisor'] },
-  { path: '/ai-chat', label: '智能客服', icon: ChatDotRound, roles: ['admin', 'supervisor', 'worker'] },
-  { path: '/ai-scheduling', label: '智能排产', icon: TrendCharts, roles: ['admin', 'supervisor'] },
-  { path: '/admin/users', label: '系统管理', icon: Setting, roles: ['admin'] }
+  { path: '/dashboard', label: '首页驾驶舱', icon: HomeFilled },
+  { path: '/plans', label: '生产计划', icon: Calendar, permission: '生产计划' },
+  { path: '/work-orders', label: '工单管理', icon: List, permission: ['工单管理', '工单反馈'] },
+  { path: '/process', label: '工序进度', icon: Operation, permission: '工序进度' },
+  { path: '/teams', label: '班组管理', icon: UserFilled, permission: '班组' },
+  { path: '/exceptions', label: '异常管理', icon: Warning, permission: '异常上报' },
+  { path: '/materials', label: '物料预警', icon: Box, permission: '物料' },
+  { path: '/ai-chat', label: '智能客服', icon: ChatDotRound, permission: 'AI 客服' },
+  { path: '/ai-scheduling', label: '智能排产', icon: TrendCharts, permission: '排产' },
+  {
+    path: '/admin/users',
+    label: '系统管理',
+    icon: Setting,
+    permission: ['用户管理', '角色管理', 'Coze 配置', '系统配置']
+  }
 ]
 
-const visibleNavItems = computed(() => navItems.filter((item) => userStore.canAccess(item.roles)))
+const visibleNavItems = computed(() =>
+  navItems.filter((item) => userStore.canAccessPermission(item.permission))
+)
 
 const activeMenu = computed(() => {
   if (route.path.startsWith('/admin')) return '/admin/users'

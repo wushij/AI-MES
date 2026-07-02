@@ -39,6 +39,12 @@ public class CozeController {
         return Result.ok(cozeConfigService.getConfigView());
     }
 
+    @GetMapping("/welcome")
+    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    public Result<Map<String, Object>> welcome() {
+        return Result.ok(Map.of("welcomeMessage", cozeConfigService.getWelcomeMessage()));
+    }
+
     @PutMapping("/config")
     @SaCheckRole("admin")
     public Result<Map<String, Object>> saveConfig(@Valid @RequestBody CozeConfigSaveRequest request) {

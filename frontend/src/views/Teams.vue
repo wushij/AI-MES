@@ -260,7 +260,7 @@ function mapTeamRow(item: Record<string, unknown>): TeamRow {
 
 async function loadLeaderOptions(teamId: number | string) {
   try {
-    const payload = (await getTeamDetail(teamId)) as Record<string, unknown>
+    const payload = (await getTeamDetail(teamId)) as unknown as Record<string, unknown>
     const members = Array.isArray(payload.members) ? payload.members : []
     leaderOptions.value = members.map((item: Record<string, unknown>) => ({
       id: Number(item.id),
@@ -287,7 +287,7 @@ async function loadTeams() {
   loading.value = true
   try {
     const list = await getTeams()
-    teams.value = (Array.isArray(list) ? list : []).map((item) => mapTeamRow(item as Record<string, unknown>))
+    teams.value = (Array.isArray(list) ? list : []).map((item) => mapTeamRow(item as unknown as Record<string, unknown>))
   } catch (error) {
     console.error(error)
     ElMessage.error('加载班组失败，请确认后端已启动且数据库已初始化')
@@ -371,7 +371,7 @@ async function openDetail(row: TeamRow) {
   drawerVisible.value = true
   detail.value = null
   try {
-    const payload = (await getTeamDetail(row.id)) as Record<string, unknown>
+    const payload = (await getTeamDetail(row.id)) as unknown as Record<string, unknown>
     const summary = (payload.taskSummary as Record<string, number>) ?? {}
     detail.value = {
       ...mapTeamRow(payload),

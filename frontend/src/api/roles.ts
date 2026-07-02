@@ -4,6 +4,7 @@ export interface RoleItem {
   id: string
   roleName: string
   permissions: string[]
+  fullAccess?: boolean
 }
 
 export function getRoles() {

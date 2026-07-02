@@ -41,4 +41,10 @@ public class SysNotificationController {
         sysNotificationService.markAsRead(id);
         return Result.ok("通知已读");
     }
+
+    @DeleteMapping("/read")
+    public Result<String> clearRead() {
+        sysNotificationService.clearRead();
+        return Result.ok("已清除全部已读通知");
+    }
 }

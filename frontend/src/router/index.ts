@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { useUserStore } from '@/stores/user'
 import { bindAuthRouter } from '@/utils/session'
-import type { AppRouteMeta, UserRole } from '@/types'
+import type { AppRouteMeta } from '@/types'
 
 declare module 'vue-router' {
   interface RouteMeta extends AppRouteMeta { }
@@ -30,85 +30,85 @@ const router = createRouter({
           path: 'dashboard',
           name: 'dashboard',
           component: () => import('@/views/Dashboard.vue'),
-          meta: { title: '首页驾驶舱', roles: ['admin', 'supervisor', 'worker'] }
+          meta: { title: '首页驾驶舱' }
         },
         {
           path: 'plans',
           name: 'plans',
           component: () => import('@/views/Plans.vue'),
-          meta: { title: '生产计划', roles: ['admin', 'supervisor'] }
+          meta: { title: '生产计划', permission: '生产计划' }
         },
         {
           path: 'work-orders',
           name: 'work-orders',
           component: () => import('@/views/WorkOrders.vue'),
-          meta: { title: '工单管理', roles: ['admin', 'supervisor', 'worker'] }
+          meta: { title: '工单管理', permission: ['工单管理', '工单反馈'] }
         },
         {
           path: 'work-orders/:id',
           name: 'work-order-detail',
           component: () => import('@/views/WorkOrderDetail.vue'),
-          meta: { title: '工单详情', roles: ['admin', 'supervisor', 'worker'] }
+          meta: { title: '工单详情', permission: ['工单管理', '工单反馈'] }
         },
         {
           path: 'process',
           name: 'process',
           component: () => import('@/views/Process.vue'),
-          meta: { title: '工序进度', roles: ['admin', 'worker'] }
+          meta: { title: '工序进度', permission: '工序进度' }
         },
         {
           path: 'teams',
           name: 'teams',
           component: () => import('@/views/Teams.vue'),
-          meta: { title: '班组管理', roles: ['admin', 'supervisor'] }
+          meta: { title: '班组管理', permission: '班组' }
         },
         {
           path: 'exceptions',
           name: 'exceptions',
           component: () => import('@/views/Exceptions.vue'),
-          meta: { title: '异常管理', roles: ['admin', 'supervisor', 'worker'] }
+          meta: { title: '异常管理', permission: '异常上报' }
         },
         {
           path: 'materials',
           name: 'materials',
           component: () => import('@/views/Materials.vue'),
-          meta: { title: '物料预警', roles: ['admin', 'supervisor'] }
+          meta: { title: '物料预警', permission: '物料' }
         },
         {
           path: 'ai-chat',
           name: 'ai-chat',
           component: () => import('@/views/AiChat.vue'),
-          meta: { title: 'AI 智能客服', roles: ['admin', 'supervisor', 'worker'] }
+          meta: { title: 'AI 智能客服', permission: 'AI 客服' }
         },
         {
           path: 'ai-scheduling',
           name: 'ai-scheduling',
           component: () => import('@/views/AiScheduling.vue'),
-          meta: { title: 'AI 智能排产', roles: ['admin', 'supervisor'] }
+          meta: { title: 'AI 智能排产', permission: '排产' }
         },
         {
           path: 'admin/users',
           name: 'admin-users',
           component: () => import('@/views/admin/Users.vue'),
-          meta: { title: '系统管理', roles: ['admin'] }
+          meta: { title: '系统管理', permission: '用户管理' }
         },
         {
           path: 'admin/roles',
           name: 'admin-roles',
           component: () => import('@/views/admin/Roles.vue'),
-          meta: { title: '系统管理', roles: ['admin'] }
+          meta: { title: '系统管理', permission: '角色管理' }
         },
         {
           path: 'admin/coze',
           name: 'admin-coze',
           component: () => import('@/views/admin/Coze.vue'),
-          meta: { title: '系统管理', roles: ['admin'] }
+          meta: { title: '系统管理', permission: 'Coze 配置' }
         },
         {
           path: 'profile',
           name: 'profile',
           component: () => import('@/views/Profile.vue'),
-          meta: { title: '个人中心', roles: ['admin', 'supervisor', 'worker'] }
+          meta: { title: '个人中心' }
         }
       ]
     }
@@ -122,8 +122,11 @@ router.beforeEach(async (to) => {
   const title = to.meta.title ? `${to.meta.title} - AI-MES` : 'AI-MES'
   document.title = title
 
-  if (to.path === '/login' && userStore.isAuthenticated) {
-    return getHomePath(userStore.role)
+  if (to.path === '/login') {
+    if (userStore.isAuthenticated) {
+      return '/dashboard'
+    }
+    return true
   }
 
   if (to.meta.requiresAuth && !userStore.isAuthenticated) {
@@ -131,16 +134,16 @@ router.beforeEach(async (to) => {
     return `/login?redirect=${redirect}`
   }
 
-  if (to.meta.roles?.length && !userStore.canAccess(to.meta.roles)) {
-    return getHomePath(userStore.role)
+  if (to.meta.permission && !userStore.canAccessPermission(to.meta.permission)) {
+    if (!userStore.isAuthenticated) {
+      const redirect = encodeURIComponent(to.fullPath)
+      return `/login?redirect=${redirect}`
+    }
+    return '/dashboard'
   }
 
   return true
 })
-
-function getHomePath(role: UserRole | '') {
-  return '/dashboard'
-}
 
 bindAuthRouter(router)
 

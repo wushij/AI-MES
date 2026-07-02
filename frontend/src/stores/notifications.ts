@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { ElNotification } from 'element-plus'
 import { Calendar, InfoFilled, Warning } from '@element-plus/icons-vue'
 import {
+  clearReadNotifications,
   getNotifications,
   markAllNotificationsAsRead,
   markNotificationAsRead,
@@ -27,16 +28,16 @@ function isNotificationRead(value: unknown) {
 }
 
 function formatRelativeTime(timeStr: string) {
-  if (!timeStr) return '刚才'
+  if (!timeStr) return '刚刚'
   try {
     const date = new Date(timeStr.replace(' ', 'T'))
     const diff = Date.now() - date.getTime()
-    if (diff < 60000) return '刚才'
+    if (diff < 60000) return '刚刚'
     if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
     return `${date.getMonth() + 1}月${date.getDate()}日`
   } catch {
-    return '刚才'
+    return '刚刚'
   }
 }
 
@@ -178,6 +179,11 @@ export const useNotificationStore = defineStore('notifications', () => {
     items.value = items.value.map((item) => (item.id === id ? { ...item, isRead: true } : item))
   }
 
+  async function clearRead() {
+    await clearReadNotifications()
+    items.value = items.value.filter((item) => !item.isRead)
+  }
+
   function reset() {
     disconnect()
     items.value = []
@@ -195,6 +201,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     fetchAll,
     markAllAsRead,
     markAsRead,
+    clearRead,
     reset
   }
 })

@@ -9,11 +9,16 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
 const { initialized } = storeToRefs(userStore)
+
+onMounted(() => {
+  void userStore.hydrate()
+})
 </script>
 
 <style>

@@ -38,6 +38,7 @@ const html = computed(() => renderChatMarkdown(props.message.content))
   background: #fff;
   color: var(--cd-text-primary);
   box-shadow: 0 8px 16px rgba(15, 23, 42, 0.06);
+  overflow-x: hidden;
 }
 
 .chat-message--assistant .chat-message__bubble {
@@ -66,32 +67,31 @@ const html = computed(() => renderChatMarkdown(props.message.content))
 
 .chat-message__bubble :deep(table) {
   width: 100%;
-  min-width: 260px;
   table-layout: fixed;
   border-collapse: collapse;
   margin: 8px 0;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .chat-message__bubble :deep(th),
 .chat-message__bubble :deep(td) {
   border: 1px solid #e2e8f0;
-  padding: 6px 8px;
+  padding: 6px;
   text-align: left;
   vertical-align: top;
-  word-break: keep-all;
-  overflow-wrap: break-word;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .chat-message__bubble :deep(th:first-child),
 .chat-message__bubble :deep(td:first-child) {
-  width: 32%;
-  white-space: nowrap;
+  width: auto;
 }
 
 .chat-message__bubble :deep(th:last-child),
 .chat-message__bubble :deep(td:last-child) {
-  width: 68%;
+  width: auto;
 }
 
 .chat-message__bubble :deep(th) {

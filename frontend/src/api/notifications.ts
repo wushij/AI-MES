@@ -26,3 +26,7 @@ export function markAllNotificationsAsRead() {
 export function markNotificationAsRead(id: number | string) {
   return request.put<string>(`/notifications/${id}/read`).then((res) => res.data)
 }
+
+export function clearReadNotifications() {
+  return request.delete<string>('/notifications/read').then((res) => res.data)
+}

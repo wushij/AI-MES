@@ -1,25 +1,54 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { sendCozeMessage } from '@/api/coze'
+import { getCozeWelcomeMessage, sendCozeMessage } from '@/api/coze'
 import type { CozeChatMessage } from '@/types'
 
-const defaultWelcomeMessage: CozeChatMessage = {
-  id: 'welcome',
-  role: 'assistant',
-  content: '您好，我是 AI-MES 智能助手，可以协助查询工单进度、班组任务、异常处置和 SOP。',
-  createdAt: new Date().toISOString()
+const DEFAULT_WELCOME_MESSAGE =
+  '您好，我是 AI-MES 智能助手，可协助查询工单进度、异常处理及 SOP 指导。'
+
+function buildWelcomeMessage(content: string): CozeChatMessage {
+  return {
+    id: 'welcome',
+    role: 'assistant',
+    content,
+    createdAt: new Date().toISOString()
+  }
 }
 
 export const useChatStore = defineStore('chat', () => {
   const visible = ref(false)
   const sending = ref(false)
   const conversationId = ref('')
-  const messages = ref<CozeChatMessage[]>([{ ...defaultWelcomeMessage }])
+  const welcomeMessage = ref(DEFAULT_WELCOME_MESSAGE)
+  const messages = ref<CozeChatMessage[]>([buildWelcomeMessage(DEFAULT_WELCOME_MESSAGE)])
 
   const hasMessages = computed(() => messages.value.length > 0)
 
+  function isWelcomeOnly() {
+    return messages.value.length === 1 && messages.value[0]?.id === 'welcome'
+  }
+
+  function applyWelcomeMessage(content: string) {
+    welcomeMessage.value = content
+    if (isWelcomeOnly()) {
+      messages.value = [buildWelcomeMessage(content)]
+    }
+  }
+
+  async function loadWelcomeMessage() {
+    try {
+      const data = await getCozeWelcomeMessage()
+      if (data.welcomeMessage?.trim()) {
+        applyWelcomeMessage(data.welcomeMessage.trim())
+      }
+    } catch {
+      /* keep current welcome message */
+    }
+  }
+
   function open() {
     visible.value = true
+    void loadWelcomeMessage()
   }
 
   function close() {
@@ -27,14 +56,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function toggle() {
-    visible.value = !visible.value
+    if (visible.value) {
+      close()
+      return
+    }
+    open()
   }
 
   function reset() {
     visible.value = false
     sending.value = false
     conversationId.value = ''
-    messages.value = [{ ...defaultWelcomeMessage, createdAt: new Date().toISOString() }]
+    messages.value = [buildWelcomeMessage(welcomeMessage.value)]
   }
 
   function pushMessage(message: CozeChatMessage) {
@@ -96,8 +129,10 @@ export const useChatStore = defineStore('chat', () => {
     visible,
     sending,
     conversationId,
+    welcomeMessage,
     messages,
     hasMessages,
+    loadWelcomeMessage,
     open,
     close,
     toggle,

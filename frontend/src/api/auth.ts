@@ -15,21 +15,8 @@ interface AuthPayload {
   role: UserProfile['role']
   teamId?: number
   teamName?: string
-}
-
-function toLoginResponse(data: AuthPayload): LoginResponse {
-  return {
-    token: data.token,
-    user: {
-      id: data.id,
-      username: data.username,
-      realName: data.realName,
-      avatar: data.avatar,
-      role: data.role,
-      teamId: data.teamId,
-      teamName: data.teamName
-    }
-  }
+  permissions?: string[]
+  fullAccess?: boolean
 }
 
 function toUserProfile(data: AuthPayload): UserProfile {
@@ -40,7 +27,16 @@ function toUserProfile(data: AuthPayload): UserProfile {
     avatar: data.avatar,
     role: data.role,
     teamId: data.teamId,
-    teamName: data.teamName
+    teamName: data.teamName,
+    permissions: data.permissions ?? [],
+    fullAccess: Boolean(data.fullAccess)
+  }
+}
+
+function toLoginResponse(data: AuthPayload): LoginResponse {
+  return {
+    token: data.token,
+    user: toUserProfile(data)
   }
 }
 
@@ -69,7 +65,7 @@ export function getCurrentUser() {
       skipErrorHandler: true,
       skipUnauthorizedRedirect: true
     } as ExtendedRequestConfig)
-    .then((res: any) => toUserProfile(res.data as any))
+    .then((res) => toUserProfile(res.data))
 }
 
 export function logout() {
