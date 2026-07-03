@@ -7,6 +7,7 @@ import {
   sendChatMessage
 } from '@/api/ai'
 import { getCozeWelcomeMessage } from '@/api/coze'
+import { isAbortError } from '@/api/request'
 import { normalizeList } from '@/utils/normalizeList'
 import { USER_STORAGE_KEY } from '@/api/request'
 
@@ -77,6 +78,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
   const historyLoading = ref(false)
   const deletingSessionId = ref<string | number | null>(null)
   let ensureSessionPromise: Promise<ChatSession> | null = null
+  const abortControllers = ref<Record<string, AbortController>>({})
 
   const activeSession = computed(() =>
     sessions.value.find((item) => item.id === activeSessionId.value) ?? null
@@ -159,6 +161,8 @@ export const useAiChatStore = defineStore('aiChat', () => {
   }
 
   function resetState() {
+    Object.values(abortControllers.value).forEach((controller) => controller.abort())
+    abortControllers.value = {}
     initialized.value = false
     ownerUserId.value = null
     sessions.value = []
@@ -232,18 +236,32 @@ export const useAiChatStore = defineStore('aiChat', () => {
     }
   }
 
+  function findPendingSession(): ChatSession | null {
+    const pending = sessions.value.filter((session) => pendingSessions.value[getSessionKey(session.id)])
+    if (!pending.length) return null
+    return pending.sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))[0]
+  }
+
+  async function openDefaultConversation() {
+    const pendingSession = findPendingSession()
+    if (pendingSession) {
+      await selectSession(pendingSession)
+      return pendingSession
+    }
+    const orphanedKey = Object.keys(pendingSessions.value).find((key) => pendingSessions.value[key])
+    if (orphanedKey) {
+      activeSessionId.value = orphanedKey
+      return null
+    }
+    return startConversation('新对话')
+  }
+
   async function ensureInitialized() {
     if (!syncOwnerUser()) return
     if (initialized.value) return
     await loadWelcomeMessage()
     await loadSessions()
-    if (!sessions.value.length) {
-      createLocalSession('新对话')
-    } else if (activeSessionId.value) {
-      await selectSession(activeSessionId.value)
-    } else {
-      await selectSession(sessions.value[0].id)
-    }
+    await openDefaultConversation()
     initialized.value = true
   }
 
@@ -346,6 +364,12 @@ export const useAiChatStore = defineStore('aiChat', () => {
     }
   }
 
+  function stopMessage() {
+    const key = getSessionKey(activeSessionId.value)
+    if (!key) return
+    abortControllers.value[key]?.abort()
+  }
+
   async function sendMessage(text: string) {
     const content = text.trim()
     if (!content) return
@@ -376,8 +400,14 @@ export const useAiChatStore = defineStore('aiChat', () => {
     setSessionMessages(key, targetMessages)
     markPending(key, true)
 
+    const controller = new AbortController()
+    abortControllers.value = { ...abortControllers.value, [key]: controller }
+
     try {
-      const response = await sendChatMessage({ sessionId, message: content })
+      const response = await sendChatMessage(
+        { sessionId, message: content },
+        { signal: controller.signal }
+      )
       aiPlaceholder.loading = false
       aiPlaceholder.content = String(response.reply ?? '助手未返回有效回复。')
 
@@ -417,13 +447,27 @@ export const useAiChatStore = defineStore('aiChat', () => {
       }
     } catch (error) {
       aiPlaceholder.loading = false
-      const message = error instanceof Error ? error.message : ''
-      aiPlaceholder.content = message.includes('timeout') || message.includes('超时')
-        ? 'AI 响应超时（Coze 处理较慢，约需 30～90 秒），请稍后重试。'
-        : message || 'AI 服务暂时不可用，请稍后重试。'
+      if (isAbortError(error)) {
+        aiPlaceholder.content = '已停止生成'
+      } else {
+        const message = error instanceof Error ? error.message : ''
+        aiPlaceholder.content = message.includes('timeout') || message.includes('超时')
+          ? 'AI 响应超时（Coze 处理较慢，约需 30～90 秒），请稍后重试。'
+          : message || 'AI 服务暂时不可用，请稍后重试。'
+      }
       setSessionMessages(key, [...targetMessages])
     } finally {
-      markPending(getSessionKey(activeSessionId.value), false)
+      const pendingKey = getSessionKey(activeSessionId.value)
+      const nextControllers = { ...abortControllers.value }
+      delete nextControllers[key]
+      if (pendingKey && pendingKey !== key) {
+        delete nextControllers[pendingKey]
+      }
+      abortControllers.value = nextControllers
+      markPending(key, false)
+      if (pendingKey && pendingKey !== key) {
+        markPending(pendingKey, false)
+      }
     }
   }
 
@@ -443,9 +487,11 @@ export const useAiChatStore = defineStore('aiChat', () => {
     loadWelcomeMessage,
     loadSessions,
     startConversation,
+    openDefaultConversation,
     selectSession,
     removeSession,
     sendMessage,
+    stopMessage,
     reset
   }
 })

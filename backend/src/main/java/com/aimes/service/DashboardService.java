@@ -151,15 +151,15 @@ public class DashboardService {
         long total = prodWorkOrderMapper.selectCount(null);
         long done = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
                 .eq(ProdWorkOrder::getStatus, "done"));
-        long todayDone = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
-                .eq(ProdWorkOrder::getStatus, "done")
-                .ge(ProdWorkOrder::getDeadline, todayStart)
-                .lt(ProdWorkOrder::getDeadline, tomorrowStart));
-        int completionRate = total == 0 ? 0 : (int) (done * 100 / total);
+        // 今日实际完成的工单列表
         List<ProdWorkOrder> todayDoneOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
                 .eq(ProdWorkOrder::getStatus, "done")
-                .ge(ProdWorkOrder::getDeadline, todayStart)
-                .lt(ProdWorkOrder::getDeadline, tomorrowStart));
+                .ge(ProdWorkOrder::getUpdatedTime, todayStart)
+                .lt(ProdWorkOrder::getUpdatedTime, tomorrowStart));
+        long todayDone = todayDoneOrders.size();
+        int completionRate = total == 0 ? 0 : (int) (done * 100 / total);
+
+        // 统计其中准时完成的工单数
         long onTimeDone = todayDoneOrders.stream()
                 .filter(order -> order.getDeadline() == null || !order.getUpdatedTime().isAfter(order.getDeadline()))
                 .count();

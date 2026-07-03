@@ -682,7 +682,7 @@ function mapWorkOrderRow(item: any): WorkOrderRow {
   const dateStr = item.dueDate ?? item.deadline
   const formattedDate = dateStr ? String(dateStr).replace('T', ' ').substring(0, 16) : '--'
   return {
-    id: item.id ?? item.workOrderId ?? item.code,
+    id: item.id ?? item.workOrderId,
     code: String(item.code ?? item.workOrderCode ?? item.orderNo ?? '--'),
     planCode: String(item.planCode ?? item.planNo ?? '--'),
     productName: String(item.productName ?? item.product ?? '--'),

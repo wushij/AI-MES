@@ -164,12 +164,36 @@ onActivated(() => { void loadDashboard(true) })
 onBeforeUnmount(() => {
   if (refreshTimer) clearInterval(refreshTimer)
   window.removeEventListener('resize', resizeCharts)
-  teamChart.value?.dispose()
-  trendChart.value?.dispose()
+  disposeCharts()
 })
 
+function disposeCharts() {
+  teamChart.value?.dispose()
+  trendChart.value?.dispose()
+  teamChart.value = undefined
+  trendChart.value = undefined
+}
+
+function ensureChart(
+  chartRef: { value: echarts.ECharts | undefined },
+  el: HTMLDivElement | undefined
+): echarts.ECharts | undefined {
+  if (!el) return undefined
+  if (chartRef.value && chartRef.value.getDom() !== el) {
+    chartRef.value.dispose()
+    chartRef.value = undefined
+  }
+  if (!chartRef.value) {
+    chartRef.value = echarts.init(el)
+  }
+  return chartRef.value
+}
+
 async function loadDashboard(silent = false) {
-  if (!silent) loading.value = true
+  if (!silent) {
+    loading.value = true
+    disposeCharts()
+  }
   try {
     const payload = await getDashboardData()
     const overview = payload.overview ?? {}
@@ -196,9 +220,9 @@ async function loadDashboard(silent = false) {
 }
 
 function renderCharts() {
-  if (teamChartRef.value) {
-    teamChart.value ??= echarts.init(teamChartRef.value)
-    teamChart.value.setOption({
+  const teamInstance = ensureChart(teamChart, teamChartRef.value)
+  if (teamInstance) {
+    teamInstance.setOption({
       grid: { left: 80, right: 48, top: 16, bottom: 24 },
       tooltip: {
         trigger: 'axis',
@@ -263,9 +287,9 @@ function renderCharts() {
     })
   }
 
-  if (trendChartRef.value) {
-    trendChart.value ??= echarts.init(trendChartRef.value)
-    trendChart.value.setOption({
+  const trendInstance = ensureChart(trendChart, trendChartRef.value)
+  if (trendInstance) {
+    trendInstance.setOption({
       grid: { left: 48, right: 16, top: 24, bottom: 28 },
       tooltip: {
         trigger: 'axis',

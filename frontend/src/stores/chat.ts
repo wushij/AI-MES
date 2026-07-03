@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { getCozeWelcomeMessage, sendCozeMessage } from '@/api/coze'
+import { isAbortError } from '@/api/request'
 import type { CozeChatMessage } from '@/types'
 
 const DEFAULT_WELCOME_MESSAGE =
@@ -21,6 +22,7 @@ export const useChatStore = defineStore('chat', () => {
   const conversationId = ref('')
   const welcomeMessage = ref(DEFAULT_WELCOME_MESSAGE)
   const messages = ref<CozeChatMessage[]>([buildWelcomeMessage(DEFAULT_WELCOME_MESSAGE)])
+  let abortController: AbortController | null = null
 
   const hasMessages = computed(() => messages.value.length > 0)
 
@@ -64,10 +66,16 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function reset() {
+    abortController?.abort()
+    abortController = null
     visible.value = false
     sending.value = false
     conversationId.value = ''
     messages.value = [buildWelcomeMessage(welcomeMessage.value)]
+  }
+
+  function stopMessage() {
+    abortController?.abort()
   }
 
   function pushMessage(message: CozeChatMessage) {
@@ -90,17 +98,22 @@ export const useChatStore = defineStore('chat', () => {
     pushMessage({
       id: pendingId,
       role: 'assistant',
-      content: 'AI 正在分析您的请求...',
+      content: '',
       createdAt: new Date().toISOString(),
       pending: true
     })
 
     sending.value = true
+    abortController = new AbortController()
+    const signal = abortController.signal
     try {
-      const response = await sendCozeMessage({
-        message: text,
-        sessionId: conversationId.value || undefined
-      })
+      const response = await sendCozeMessage(
+        {
+          message: text,
+          sessionId: conversationId.value || undefined
+        },
+        { signal }
+      )
       conversationId.value = response.sessionId ?? response.conversationId ?? conversationId.value
       messages.value = messages.value.filter((item) => item.id !== pendingId)
       pushMessage({
@@ -115,12 +128,15 @@ export const useChatStore = defineStore('chat', () => {
       pushMessage({
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: message.includes('timeout') || message.includes('超时')
-          ? 'AI 响应超时（Coze 处理较慢，约需 30～90 秒），请稍后重试。'
-          : 'AI 服务暂时不可用，请稍后重试或切换到独立 AI 页面。',
+        content: isAbortError(error)
+          ? '已停止生成'
+          : message.includes('timeout') || message.includes('超时')
+            ? 'AI 响应超时（Coze 处理较慢，约需 30～90 秒），请稍后重试。'
+            : 'AI 服务暂时不可用，请稍后重试或切换到独立 AI 页面。',
         createdAt: new Date().toISOString()
       })
     } finally {
+      abortController = null
       sending.value = false
     }
   }
@@ -137,6 +153,7 @@ export const useChatStore = defineStore('chat', () => {
     close,
     toggle,
     sendMessage,
+    stopMessage,
     reset
   }
 })

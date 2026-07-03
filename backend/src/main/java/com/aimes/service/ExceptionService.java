@@ -34,7 +34,44 @@ public class ExceptionService {
     private final AuthService authService;
     private final SysNotificationService sysNotificationService;
 
+    @Transactional
+    public void deleteByWorkOrderId(Long workOrderId) {
+        if (workOrderId == null) {
+            return;
+        }
+        excEventMapper.delete(new LambdaQueryWrapper<ExcEvent>()
+                .eq(ExcEvent::getWorkOrderId, workOrderId));
+    }
+
+    @Transactional
+    public void cleanupOrphanEvents() {
+        List<ExcEvent> events = excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
+                .select(ExcEvent::getId, ExcEvent::getWorkOrderId));
+        if (events.isEmpty()) {
+            return;
+        }
+        List<Long> workOrderIds = events.stream()
+                .map(ExcEvent::getWorkOrderId)
+                .filter(id -> id != null && id > 0)
+                .distinct()
+                .toList();
+        if (workOrderIds.isEmpty()) {
+            return;
+        }
+        List<Long> existingOrderIds = prodWorkOrderMapper.selectBatchIds(workOrderIds).stream()
+                .map(ProdWorkOrder::getId)
+                .toList();
+        List<Long> orphanIds = events.stream()
+                .filter(event -> event.getWorkOrderId() == null || !existingOrderIds.contains(event.getWorkOrderId()))
+                .map(ExcEvent::getId)
+                .toList();
+        if (!orphanIds.isEmpty()) {
+            excEventMapper.delete(new LambdaQueryWrapper<ExcEvent>().in(ExcEvent::getId, orphanIds));
+        }
+    }
+
     public Map<String, Object> list(long current, long size, String keyword, String type, String status) {
+        cleanupOrphanEvents();
         Page<ExcEvent> page = excEventMapper.selectPage(new Page<>(current, size), new LambdaQueryWrapper<ExcEvent>()
                 .like(StringUtils.hasText(keyword), ExcEvent::getEventNo, keyword)
                 .eq(StringUtils.hasText(type), ExcEvent::getEventType, type)
@@ -129,6 +166,56 @@ public class ExceptionService {
             }
         }
         return toView(event);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        ExcEvent event = getEvent(id);
+        ProdWorkOrder order = event.getWorkOrderId() == null ? null : prodWorkOrderMapper.selectById(event.getWorkOrderId());
+        Long workOrderId = event.getWorkOrderId();
+        String eventStatus = event.getStatus();
+
+        excEventMapper.deleteById(id);
+        if (order != null) {
+            sysNotificationService.deleteByWorkOrderNo(order.getOrderNo());
+        }
+
+        if (workOrderId == null || !isActiveStatus(eventStatus)) {
+            return;
+        }
+
+        long remainingActive = excEventMapper.selectCount(new LambdaQueryWrapper<ExcEvent>()
+                .eq(ExcEvent::getWorkOrderId, workOrderId)
+                .in(ExcEvent::getStatus, List.of("open", "processing")));
+        if (remainingActive > 0) {
+            return;
+        }
+
+        if (order == null || !"exception".equals(order.getStatus())) {
+            return;
+        }
+
+        ProdProcessRecord paused = prodProcessRecordMapper.selectOne(new LambdaQueryWrapper<ProdProcessRecord>()
+                .eq(ProdProcessRecord::getWorkOrderId, workOrderId)
+                .eq(ProdProcessRecord::getStatus, "paused")
+                .orderByDesc(ProdProcessRecord::getSeqNo)
+                .last("limit 1"));
+        if (paused != null) {
+            paused.setStatus("running");
+            prodProcessRecordMapper.updateById(paused);
+            order.setStatus("producing");
+        } else if (order.getClaimUserId() != null) {
+            order.setStatus("producing");
+        } else if (order.getTeamId() != null) {
+            order.setStatus("assigned");
+        } else {
+            order.setStatus("pending");
+        }
+        prodWorkOrderMapper.updateById(order);
+    }
+
+    private boolean isActiveStatus(String status) {
+        return "open".equals(status) || "processing".equals(status);
     }
 
     private ExcEvent getEvent(Long id) {

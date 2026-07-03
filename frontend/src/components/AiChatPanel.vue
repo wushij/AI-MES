@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { ChatDotRound, Close } from '@element-plus/icons-vue'
 import AiChatMessage from './AiChatMessage.vue'
 import { useChatStore } from '@/stores/chat'
@@ -7,10 +7,8 @@ import { useChatStore } from '@/stores/chat'
 const chatStore = useChatStore()
 const draft = ref('')
 
-const disabled = computed(() => chatStore.sending || !draft.value.trim())
-
 async function submit() {
-  if (disabled.value) return
+  if (chatStore.sending || !draft.value.trim()) return
   const content = draft.value
   draft.value = ''
   await chatStore.sendMessage(content)
@@ -45,9 +43,18 @@ async function submit() {
             @keydown.enter.prevent="submit"
           />
           <el-button
+            v-if="chatStore.sending"
+            type="danger"
+            plain
+            class="stop-btn"
+            @click="chatStore.stopMessage()"
+          >
+            停止
+          </el-button>
+          <el-button
+            v-else
             type="primary"
-            :loading="chatStore.sending"
-            :disabled="disabled"
+            :disabled="!draft.trim()"
             class="send-btn"
             @click="submit"
           >
@@ -140,6 +147,15 @@ async function submit() {
 
 .chat-panel__composer-box :deep(.el-textarea__inner)::placeholder {
   color: #94a3b8;
+}
+
+.stop-btn {
+  height: 28px;
+  padding: 0 12px !important;
+  border-radius: 14px !important;
+  font-size: 12px;
+  font-weight: 500;
+  flex-shrink: 0;
 }
 
 .send-btn {

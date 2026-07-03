@@ -150,11 +150,16 @@ public class WorkOrderService {
 
     @Transactional
     public void delete(Long id) {
+        ProdWorkOrder order = getOrder(id);
+        Long workOrderId = order.getId();
+        String orderNo = order.getOrderNo();
+
         prodProcessRecordMapper.delete(new LambdaQueryWrapper<ProdProcessRecord>()
-                .eq(ProdProcessRecord::getWorkOrderId, id));
+                .eq(ProdProcessRecord::getWorkOrderId, workOrderId));
         excEventMapper.delete(new LambdaQueryWrapper<ExcEvent>()
-                .eq(ExcEvent::getWorkOrderId, id));
-        prodWorkOrderMapper.deleteById(id);
+                .eq(ExcEvent::getWorkOrderId, workOrderId));
+        sysNotificationService.deleteByWorkOrderNo(orderNo);
+        prodWorkOrderMapper.deleteById(workOrderId);
     }
 
     @Transactional

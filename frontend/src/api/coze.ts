@@ -9,7 +9,10 @@ import type {
   CozeSchedulingResponse
 } from '@/types'
 
-export function sendCozeMessage(payload: CozeChatRequest) {
+export function sendCozeMessage(
+  payload: CozeChatRequest,
+  options?: { signal?: AbortSignal }
+) {
   const body = {
     message: payload.message,
     sessionId: payload.sessionId || payload.conversationId
@@ -17,7 +20,8 @@ export function sendCozeMessage(payload: CozeChatRequest) {
   return request
     .post<CozeChatResponse>('/coze/chat', body, {
       timeout: 120000,
-      skipErrorHandler: true
+      skipErrorHandler: true,
+      signal: options?.signal
     })
     .then((res) => res.data)
 }

@@ -1,4 +1,5 @@
 import request from './request'
+import { exceptionTypeLabel } from '@/utils/labels'
 
 export async function getDashboardData() {
   const [stats, progress, alerts] = await Promise.all([
@@ -32,7 +33,7 @@ export async function getDashboardData() {
     exceptionList: (alerts.exceptions ?? []).map((item) => ({
       id: item.id,
       code: item.eventNo,
-      typeLabel: item.eventType,
+      typeLabel: exceptionTypeLabel(String(item.eventType ?? '')),
       workOrderCode: item.workOrderId,
       reportedAt: item.occurTime,
       status: item.status

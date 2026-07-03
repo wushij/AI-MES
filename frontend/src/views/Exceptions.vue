@@ -44,10 +44,19 @@
 
         <el-table-column label="状态" width="110" align="center"><template #default="{ row }"><StatusTag :status="row.status" /></template></el-table-column>
 
-        <el-table-column label="操作" fixed="right" width="180" align="center">
+        <el-table-column label="操作" fixed="right" width="250" align="center">
           <template #default="{ row }">
             <el-button v-if="canHandle && row.status !== 'closed'" size="small" class="action-btn action-btn--edit" @click="openHandleDialog(row)">处理</el-button>
             <el-button v-else size="small" class="action-btn action-btn--view" @click="openHandleDialog(row)">查看</el-button>
+            <el-button
+              v-if="canDelete"
+              size="small"
+              class="action-btn action-btn--delete"
+              :loading="deleteLoading === row.id"
+              @click="removeException(row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
 
@@ -309,7 +318,7 @@
 
 <script setup lang="ts">
 
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import type { FormInstance, FormRules } from 'element-plus'
 
@@ -348,6 +357,7 @@ const loading = ref(false)
 const submittingReport = ref(false)
 
 const submittingHandle = ref(false)
+const deleteLoading = ref<string | number | null>(null)
 
 const reportDialogVisible = ref(false)
 
@@ -368,6 +378,7 @@ const activeException = ref<ExceptionRow | null>(null)
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600' }
 
 const canHandle = computed(() => userStore.isAdmin || userStore.isSupervisor)
+const canDelete = computed(() => userStore.isAdmin)
 
 const typeOptions = [{ label: '设备停机', value: 'device' }, { label: '缺料', value: 'material' }, { label: '质量异常', value: 'quality' }, { label: '其他', value: 'other' }]
 
@@ -526,6 +537,35 @@ function resetFilters() {
   loadExceptions()
 }
 
+async function removeException(row: ExceptionRow) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除异常记录 ${row.code}？删除后不可恢复。${row.status !== 'closed' ? '若该工单无其他未处理异常，将自动恢复工单状态。' : ''}`,
+      '删除异常记录',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消'
+      }
+    )
+  } catch {
+    return
+  }
+
+  deleteLoading.value = row.id
+  try {
+    const { deleteException } = await import('@/api/exceptions')
+    await deleteException(row.id)
+    ElMessage.success('异常记录已删除')
+    await loadExceptions()
+  } catch (error) {
+    console.error(error)
+    ElMessage.error(error instanceof Error ? error.message : '删除异常记录失败')
+  } finally {
+    deleteLoading.value = null
+  }
+}
+
 function currentDateTime() {
   const now = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -635,6 +675,15 @@ function currentDateTime() {
   background: #f8fafc !important;
   border-color: #cbd5e1 !important;
   color: #334155 !important;
+}
+
+.action-btn--delete {
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  color: #ef4444 !important;
+}
+.action-btn--delete:hover {
+  background: rgba(239, 68, 68, 0.05) !important;
+  border-color: #ef4444 !important;
 }
 
 /* Premium Dialog Styles */

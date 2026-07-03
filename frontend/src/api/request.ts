@@ -28,6 +28,7 @@ export interface ApiResult<T = unknown> {
 export interface ApiRequestError extends Error {
   apiCode?: number
   httpStatus?: number
+  canceled?: boolean
 }
 
 function logApiIssue(level: 'error' | 'warn', message: string, detail?: unknown) {
@@ -43,6 +44,13 @@ export function createApiError(message: string, apiCode?: number, httpStatus?: n
   const error = new Error(message) as ApiRequestError
   error.apiCode = apiCode
   error.httpStatus = httpStatus
+  return error
+}
+
+export function createAbortError() {
+  const error = createApiError('已取消请求')
+  error.name = 'CanceledError'
+  error.canceled = true
   return error
 }
 
@@ -62,6 +70,13 @@ export function isNetworkFailure(error: unknown) {
   const err = error as AxiosError
   if (!err.response) return true
   return err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK'
+}
+
+export function isAbortError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const err = error as ApiRequestError & { code?: string }
+  if (err.canceled) return true
+  return err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED'
 }
 
 export function normalizeRequestError(error: AxiosError<ApiResult>): ApiRequestError {
@@ -118,6 +133,11 @@ request.interceptors.response.use(
   },
   (error: AxiosError<ApiResult>) => {
     const cfg = error.config as ExtendedRequestConfig | undefined
+
+    if (isAbortError(error)) {
+      return Promise.reject(createAbortError())
+    }
+
     const normalized = normalizeRequestError(error)
     const status = resolveErrorStatus(normalized)
 

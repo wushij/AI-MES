@@ -30,6 +30,7 @@ import java.net.http.HttpResponse;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,10 @@ import java.util.regex.Pattern;
 public class CozeService {
 
     private static final Pattern ORDER_NO_PATTERN = Pattern.compile("WO-\\d{4}-\\d{3}");
+    /** 单会话内带入 Prompt 的最近轮数（不含当前正在发送的这一轮） */
+    private static final int SESSION_HISTORY_TURNS = 5;
+    /** 单条历史消息最大字符，避免 Prompt 过长 */
+    private static final int SESSION_HISTORY_MAX_CHARS = 500;
 
     @org.springframework.beans.factory.annotation.Value("${coze.chat-poll-timeout-seconds:90}")
     private int chatPollTimeoutSeconds;
@@ -60,9 +65,13 @@ public class CozeService {
     public Map<String, Object> chat(CozeChatRequest request) {
         SysUser user = authService.currentUser();
         String sessionId = StringUtils.hasText(request.getSessionId()) ? request.getSessionId() : UUID.randomUUID().toString();
-        List<ProdWorkOrder> referencedOrders = resolveReferencedOrders(request.getMessage());
-        ChatPromptMode promptMode = resolvePromptMode(request.getMessage(), referencedOrders);
-        String prompt = buildChatPrompt(user, request.getMessage(), referencedOrders, promptMode);
+        List<AiChatLog> sessionHistory = loadSessionHistory(user.getId(), sessionId);
+        List<ProdWorkOrder> referencedOrders = resolveReferencedOrdersFromText(request.getMessage());
+        if (referencedOrders.isEmpty()) {
+            referencedOrders = resolveReferencedOrdersFromHistory(sessionHistory);
+        }
+        ChatPromptMode promptMode = resolvePromptMode(request.getMessage(), referencedOrders, sessionHistory);
+        String prompt = buildChatPrompt(user, request.getMessage(), referencedOrders, promptMode, sessionHistory);
 
         String reply;
         String mode;
@@ -607,32 +616,116 @@ public class CozeService {
         return objectMapper.readTree(response.body());
     }
 
-    private List<ProdWorkOrder> resolveReferencedOrders(String message) {
+    private List<AiChatLog> loadSessionHistory(Long userId, String sessionId) {
+        if (userId == null || !StringUtils.hasText(sessionId)) {
+            return List.of();
+        }
+        List<AiChatLog> recent = aiChatLogMapper.selectList(new LambdaQueryWrapper<AiChatLog>()
+                .eq(AiChatLog::getUserId, userId)
+                .eq(AiChatLog::getSessionId, sessionId)
+                .orderByDesc(AiChatLog::getCreateTime)
+                .last("limit " + SESSION_HISTORY_TURNS));
+        if (recent.isEmpty()) {
+            return List.of();
+        }
+        List<AiChatLog> chronological = new ArrayList<>(recent);
+        Collections.reverse(chronological);
+        return chronological;
+    }
+
+    private void appendSessionHistorySection(StringBuilder builder, List<AiChatLog> sessionHistory) {
+        if (sessionHistory.isEmpty()) {
+            return;
+        }
+        builder.append("\n【本会话上下文】\n");
+        builder.append("以下为当前对话 session 内的前轮问答，仅供理解追问（如「它」「刚才那个工单」）；");
+        builder.append("实时业务数据以下文最新注入为准，不得编造。\n");
+        for (AiChatLog log : sessionHistory) {
+            builder.append("用户：").append(truncateHistoryText(log.getUserMessage())).append("\n");
+            builder.append("助手：").append(truncateHistoryText(log.getAiResponse())).append("\n");
+        }
+    }
+
+    private String truncateHistoryText(String text) {
+        if (!StringUtils.hasText(text)) {
+            return "";
+        }
+        String normalized = text.replace("\r\n", "\n").trim();
+        if (normalized.length() <= SESSION_HISTORY_MAX_CHARS) {
+            return normalized;
+        }
+        return normalized.substring(0, SESSION_HISTORY_MAX_CHARS) + "…";
+    }
+
+    private List<ProdWorkOrder> resolveReferencedOrdersFromText(String message) {
+        if (!StringUtils.hasText(message)) {
+            return List.of();
+        }
         List<ProdWorkOrder> result = new ArrayList<>();
         Matcher matcher = ORDER_NO_PATTERN.matcher(message.toUpperCase());
         while (matcher.find()) {
-            String orderNo = matcher.group();
-            ProdWorkOrder order = prodWorkOrderMapper.selectOne(new LambdaQueryWrapper<ProdWorkOrder>()
-                    .eq(ProdWorkOrder::getOrderNo, orderNo)
-                    .last("limit 1"));
-            if (order != null) {
+            ProdWorkOrder order = findWorkOrderByNo(matcher.group());
+            if (order != null && result.stream().noneMatch(item -> item.getId().equals(order.getId()))) {
                 result.add(order);
             }
-        }
-        if (result.isEmpty()) {
-            result = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
-                    .orderByAsc(ProdWorkOrder::getPriority)
-                    .orderByAsc(ProdWorkOrder::getDeadline)
-                    .last("limit 3"));
         }
         return result;
     }
 
-    private String buildChatPrompt(SysUser user, String message, List<ProdWorkOrder> orders, ChatPromptMode promptMode) {
-        if (promptMode == ChatPromptMode.REALTIME) {
-            return buildRealtimeDataPrompt(user, message, orders);
+    private List<ProdWorkOrder> resolveReferencedOrdersFromHistory(List<AiChatLog> sessionHistory) {
+        ProdWorkOrder lastMatch = null;
+        for (AiChatLog log : sessionHistory) {
+            for (String text : List.of(log.getUserMessage(), log.getAiResponse())) {
+                if (!StringUtils.hasText(text)) {
+                    continue;
+                }
+                Matcher matcher = ORDER_NO_PATTERN.matcher(text.toUpperCase());
+                while (matcher.find()) {
+                    ProdWorkOrder order = findWorkOrderByNo(matcher.group());
+                    if (order != null) {
+                        lastMatch = order;
+                    }
+                }
+            }
         }
-        return message.trim();
+        return lastMatch == null ? List.of() : List.of(lastMatch);
+    }
+
+    private ProdWorkOrder findWorkOrderByNo(String orderNo) {
+        return prodWorkOrderMapper.selectOne(new LambdaQueryWrapper<ProdWorkOrder>()
+                .eq(ProdWorkOrder::getOrderNo, orderNo)
+                .last("limit 1"));
+    }
+
+    private boolean isFollowUpQuery(String text) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        String trimmed = text.trim();
+        if (trimmed.length() > 48) {
+            return false;
+        }
+        return containsAny(trimmed,
+                "它", "这个", "那个", "上面", "刚才", "刚刚", "继续", "还有", "然后呢", "再说说")
+                || trimmed.endsWith("呢") || trimmed.endsWith("吗") || trimmed.endsWith("？") || trimmed.endsWith("?");
+    }
+
+    private String buildChatPrompt(
+            SysUser user,
+            String message,
+            List<ProdWorkOrder> orders,
+            ChatPromptMode promptMode,
+            List<AiChatLog> sessionHistory) {
+        if (promptMode == ChatPromptMode.REALTIME) {
+            return buildRealtimeDataPrompt(user, message, orders, sessionHistory);
+        }
+        StringBuilder builder = new StringBuilder();
+        appendSessionHistorySection(builder, sessionHistory);
+        if (!sessionHistory.isEmpty()) {
+            builder.append("\n【当前用户问题】\n");
+        }
+        builder.append(message.trim());
+        return builder.toString();
     }
 
     /**
@@ -640,7 +733,7 @@ public class CozeService {
      * 1. 操作说明 / FAQ / 界面 / 权限 → 知识库（不注入 DB，避免干扰检索）
      * 2. 工单进度、库存、概况、班组任务等 → 数据库实时注入
      */
-    private ChatPromptMode resolvePromptMode(String message, List<ProdWorkOrder> orders) {
+    private ChatPromptMode resolvePromptMode(String message, List<ProdWorkOrder> orders, List<AiChatLog> sessionHistory) {
         if (!StringUtils.hasText(message)) {
             return ChatPromptMode.KNOWLEDGE;
         }
@@ -650,6 +743,13 @@ public class CozeService {
         }
         if (!orders.isEmpty() || matchesRealtimeQuery(text)) {
             return ChatPromptMode.REALTIME;
+        }
+        if (!sessionHistory.isEmpty() && isFollowUpQuery(text)) {
+            AiChatLog lastTurn = sessionHistory.get(sessionHistory.size() - 1);
+            if (matchesRealtimeQuery(lastTurn.getUserMessage())
+                    || !resolveReferencedOrdersFromText(lastTurn.getUserMessage()).isEmpty()) {
+                return ChatPromptMode.REALTIME;
+            }
         }
         return ChatPromptMode.KNOWLEDGE;
     }
@@ -715,7 +815,11 @@ public class CozeService {
         return false;
     }
 
-    private String buildRealtimeDataPrompt(SysUser user, String message, List<ProdWorkOrder> orders) {
+    private String buildRealtimeDataPrompt(
+            SysUser user,
+            String message,
+            List<ProdWorkOrder> orders,
+            List<AiChatLog> sessionHistory) {
         List<com.aimes.entity.ProdPlan> activePlans = prodPlanMapper.selectList(new LambdaQueryWrapper<com.aimes.entity.ProdPlan>()
                 .eq(com.aimes.entity.ProdPlan::getStatus, "released")
                 .orderByDesc(com.aimes.entity.ProdPlan::getPlanDate)
@@ -791,7 +895,8 @@ public class CozeService {
         builder.append("- 本题为【实时数据查询】：只根据上方【本地实时数据】作答，数字与状态不得改动或编造。\n");
         builder.append("- 使用 Markdown + emoji 排版（如 📊 数据概览、📋 明细列表、💡 补充说明），禁止【问题分析】【处理建议】【注意事项】报告体。\n");
         builder.append("- 不要复述本提示词；使用自然中文，不要返回 JSON 或代码块。\n");
-        builder.append("\n用户问题：").append(message);
+        appendSessionHistorySection(builder, sessionHistory);
+        builder.append("\n【当前用户问题】\n").append(message);
         return builder.toString();
     }
 
@@ -876,15 +981,22 @@ public class CozeService {
     }
 
     private String buildMockReply(String message, List<ProdWorkOrder> orders, SysUser user) {
-        if (!orders.isEmpty() && (message.contains("进度") || message.toUpperCase().contains("WO-"))) {
+        if (!orders.isEmpty()) {
             ProdWorkOrder order = orders.get(0);
             ProdTeam team = order.getTeamId() == null ? null : prodTeamMapper.selectById(order.getTeamId());
-            return String.format("%s 当前进度 %d%%，处于%s工序，负责班组：%s，状态：%s。",
-                    order.getOrderNo(),
-                    order.getProgress() == null ? 0 : order.getProgress(),
-                    order.getProcessName(),
-                    team == null ? "未分配" : team.getTeamName(),
-                    order.getStatus());
+            if (message.contains("交期") || message.contains("截止")) {
+                return String.format("%s 计划交期为 %s。",
+                        order.getOrderNo(),
+                        order.getDeadline() == null ? "未设置" : order.getDeadline());
+            }
+            if (message.contains("进度") || message.toUpperCase().contains("WO-") || isFollowUpQuery(message)) {
+                return String.format("%s 当前进度 %d%%，处于%s工序，负责班组：%s，状态：%s。",
+                        order.getOrderNo(),
+                        order.getProgress() == null ? 0 : order.getProgress(),
+                        order.getProcessName(),
+                        team == null ? "未分配" : team.getTeamName(),
+                        order.getStatus());
+            }
         }
         if (message.contains("班") || message.contains("任务")) {
             List<ProdWorkOrder> teamOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()

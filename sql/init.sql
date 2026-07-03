@@ -441,6 +441,12 @@ ALTER TABLE sys_notification
 
 SET FOREIGN_KEY_CHECKS = 1;
 
+-- 清理孤立异常记录（工单已删除但异常仍残留；新库执行时通常无影响）
+DELETE e
+FROM exc_event e
+LEFT JOIN prod_work_order wo ON e.work_order_id = wo.id
+WHERE wo.id IS NULL;
+
 -- =============================================================================
 -- 初始化完成
 -- =============================================================================

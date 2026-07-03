@@ -15,3 +15,7 @@ export function handleException(
 ) {
   return request.put(`/exceptions/${id}/handle`, payload).then((res) => res.data)
 }
+
+export function deleteException(id: number | string) {
+  return request.delete(`/exceptions/${id}`).then((res) => res.data)
+}

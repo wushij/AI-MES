@@ -8,6 +8,7 @@ import com.aimes.dto.Requests.ExceptionHandleRequest;
 import com.aimes.service.ExceptionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -52,5 +53,12 @@ public class ExceptionController {
     @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
     public Result<Map<String, Object>> handle(@PathVariable Long id, @Valid @RequestBody ExceptionHandleRequest request) {
         return Result.ok(exceptionService.handle(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @SaCheckRole("admin")
+    public Result<Void> delete(@PathVariable Long id) {
+        exceptionService.delete(id);
+        return Result.ok("异常记录已删除", null);
     }
 }

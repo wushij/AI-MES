@@ -12,7 +12,10 @@ const html = computed(() => renderChatMarkdown(props.message.content))
 
 <template>
   <div class="chat-message" :class="`chat-message--${message.role}`">
-    <div class="chat-message__bubble" v-html="html" />
+    <div class="chat-message__bubble">
+      <div v-if="message.pending" class="typing-indicator"><span></span><span></span><span></span></div>
+      <div v-else v-html="html" />
+    </div>
   </div>
 </template>
 
@@ -123,5 +126,33 @@ const html = computed(() => renderChatMarkdown(props.message.content))
   border-left: 3px solid #4f46e5;
   background: rgba(99, 102, 241, 0.06);
   color: #475569;
+}
+
+.typing-indicator {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 20px;
+}
+
+.typing-indicator span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+  animation: bounce 1.2s infinite ease-in-out;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-indicator span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+  40% { transform: translateY(-4px); opacity: 1; }
 }
 </style>

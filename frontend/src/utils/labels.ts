@@ -33,6 +33,7 @@ export function exceptionTypeLabel(type?: string) {
     case 'device':
       return '设备停机'
     case 'material':
+    case 'shortage':
       return '缺料'
     case 'quality':
       return '质量异常'

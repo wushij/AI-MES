@@ -95,11 +95,17 @@ export async function deleteChatSession(payload: { sessionId: string | number })
     .then((r) => r.data)
 }
 
-export async function sendChatMessage(payload: { sessionId?: string | number | null; message: string }) {
-  return sendCozeMessage({
-    message: payload.message,
-    sessionId: payload.sessionId != null ? String(payload.sessionId) : undefined
-  })
+export async function sendChatMessage(
+  payload: { sessionId?: string | number | null; message: string },
+  options?: { signal?: AbortSignal }
+) {
+  return sendCozeMessage(
+    {
+      message: payload.message,
+      sessionId: payload.sessionId != null ? String(payload.sessionId) : undefined
+    },
+    options
+  )
 }
 
 export const askAssistant = sendChatMessage

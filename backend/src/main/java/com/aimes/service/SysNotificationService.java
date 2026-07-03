@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 
@@ -57,6 +58,15 @@ public class SysNotificationService {
         sysNotificationMapper.delete(new LambdaQueryWrapper<SysNotification>()
                 .eq(SysNotification::getUserId, user.getId())
                 .eq(SysNotification::getIsRead, 1));
+    }
+
+    @Transactional
+    public void deleteByWorkOrderNo(String orderNo) {
+        if (!StringUtils.hasText(orderNo)) {
+            return;
+        }
+        sysNotificationMapper.delete(new LambdaQueryWrapper<SysNotification>()
+                .like(SysNotification::getContent, orderNo.trim()));
     }
 
     @Transactional

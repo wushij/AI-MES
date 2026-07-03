@@ -67,7 +67,8 @@ sql/migrations/
 ├── 003_add_sys_notification.sql     # 系统通知表（新库可跳过，init 已含）
 ├── 004_add_user_avatar.sql          # 用户头像字段
 ├── 005_dedupe_sys_notification.sql  # 清理重复通知（可选）
-└── 006_add_foreign_keys.sql         # 核心业务外键约束
+├── 006_add_foreign_keys.sql         # 核心业务外键约束
+└── 009_cleanup_orphan_exception_events.sql  # 清理已删工单遗留的异常记录
 ```
 
 PowerShell 示例：

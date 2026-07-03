@@ -113,7 +113,24 @@
             placeholder="输入您的问题..."
             @keydown.enter.prevent="handleEnter"
           />
-          <el-button type="primary" :loading="sending" class="send-btn" @click="sendMessage">发送</el-button>
+          <el-button
+            v-if="sending"
+            type="danger"
+            plain
+            class="stop-btn"
+            @click="stopGenerating"
+          >
+            停止
+          </el-button>
+          <el-button
+            v-else
+            type="primary"
+            :disabled="!draftMessage.trim()"
+            class="send-btn"
+            @click="sendMessage"
+          >
+            发送
+          </el-button>
         </div>
       </el-card>
     </div>
@@ -128,10 +145,13 @@ import { storeToRefs } from 'pinia'
 import { computed, nextTick, onActivated, onMounted, ref } from 'vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { renderChatMarkdown } from '@/utils/chatMarkdown'
+import { getChatQuickQuestions } from '@/utils/chatQuickQuestions'
 import type { ChatSession } from '@/stores/aiChat'
 import { useAiChatStore } from '@/stores/aiChat'
+import { useUserStore } from '@/stores/user'
 
 const chatStore = useAiChatStore()
+const userStore = useUserStore()
 const {
   sessions,
   messages,
@@ -148,7 +168,15 @@ const HISTORY_PREVIEW_COUNT = 8
 const draftMessage = ref('')
 const messageViewportRef = ref<HTMLDivElement>()
 const historyExpanded = ref(false)
-const quickQuestions = ['今日生产概况', '甲班有哪些任务？', 'WO-2026-001 的进度是多少？', '设备停机应该如何处理？']
+
+const quickQuestions = computed(() =>
+  getChatQuickQuestions(
+    userStore.role,
+    userStore.permissions,
+    userStore.fullAccess,
+    userStore.profile?.teamName
+  )
+)
 
 const visibleSessions = computed(() =>
   historyExpanded.value ? sessions.value : sessions.value.slice(0, HISTORY_PREVIEW_COUNT)
@@ -161,6 +189,7 @@ const hiddenSessionCount = computed(() =>
 onMounted(async () => {
   try {
     await chatStore.ensureInitialized()
+    await chatStore.openDefaultConversation()
   } catch (error) {
     console.error(error)
     ElMessage.error('加载对话失败')
@@ -174,6 +203,7 @@ onActivated(async () => {
     await chatStore.ensureInitialized()
     if (chatStore.initialized) {
       await chatStore.loadSessions()
+      await chatStore.openDefaultConversation()
     }
   } catch {
     /* ignore refresh errors */
@@ -220,6 +250,10 @@ async function removeSession(session: ChatSession) {
       ElMessage.error('删除对话失败')
     }
   }
+}
+
+function stopGenerating() {
+  chatStore.stopMessage()
 }
 
 async function sendMessage() {
@@ -519,6 +553,15 @@ function renderMarkdown(text: string) {
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
+  margin-bottom: 2px;
+}
+
+.stop-btn {
+  height: 32px;
+  padding: 0 16px !important;
+  border-radius: 16px !important;
+  font-weight: 500;
+  flex-shrink: 0;
   margin-bottom: 2px;
 }
 
