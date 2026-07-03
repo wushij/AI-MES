@@ -21,9 +21,11 @@ public class SaTokenConfig implements WebMvcConfigurer {
                                 "/api/auth/captcha",
                                 "/api/auth/captcha/required",
                                 "/doc.html",
+                                "/webjars/**",
                                 "/swagger-ui/**",
                                 "/swagger-resources/**",
                                 "/v3/api-docs/**",
+                                "/favicon.ico",
                                 "/error"
                         )
                         .check(r -> StpUtil.checkLogin())))

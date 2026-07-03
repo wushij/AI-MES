@@ -4,6 +4,7 @@ import com.aimes.common.Result;
 import com.aimes.dto.Requests.LoginRequest;
 import com.aimes.service.AuthService;
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
+@Tag(name = "认证")
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor

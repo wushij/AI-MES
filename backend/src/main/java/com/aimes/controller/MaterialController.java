@@ -6,6 +6,7 @@ import com.aimes.common.Result;
 import com.aimes.dto.Requests.MaterialCreateRequest;
 import com.aimes.dto.Requests.MaterialUpdateRequest;
 import com.aimes.service.MaterialService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
+@Tag(name = "物料预警")
 @RestController
 @RequestMapping("/api/materials")
 @RequiredArgsConstructor

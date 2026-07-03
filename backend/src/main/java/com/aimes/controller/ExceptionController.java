@@ -6,6 +6,7 @@ import com.aimes.common.Result;
 import com.aimes.dto.Requests.ExceptionCreateRequest;
 import com.aimes.dto.Requests.ExceptionHandleRequest;
 import com.aimes.service.ExceptionService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
+@Tag(name = "异常管理")
 @RestController
 @RequestMapping("/api/exceptions")
 @RequiredArgsConstructor

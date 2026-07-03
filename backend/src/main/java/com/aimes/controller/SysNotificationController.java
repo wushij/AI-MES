@@ -5,10 +5,12 @@ import cn.dev33.satoken.annotation.SaMode;
 import com.aimes.common.Result;
 import com.aimes.entity.SysNotification;
 import com.aimes.service.SysNotificationService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Tag(name = "消息通知")
 @RestController
 @RequestMapping("/api/notifications")
 @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)

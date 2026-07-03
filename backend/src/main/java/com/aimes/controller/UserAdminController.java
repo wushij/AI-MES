@@ -5,6 +5,7 @@ import com.aimes.common.Result;
 import com.aimes.dto.Requests.ResetPasswordRequest;
 import com.aimes.dto.Requests.UserSaveRequest;
 import com.aimes.service.UserAdminService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
+@Tag(name = "用户管理")
 @RestController
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor

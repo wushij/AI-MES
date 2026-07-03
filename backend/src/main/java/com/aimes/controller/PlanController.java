@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaMode;
 import com.aimes.common.Result;
 import com.aimes.dto.Requests.PlanSaveRequest;
 import com.aimes.service.PlanService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
+@Tag(name = "生产计划")
 @RestController
 @RequestMapping("/api/plans")
 @RequiredArgsConstructor

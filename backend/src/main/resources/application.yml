@@ -46,12 +46,16 @@ sa-token:
 
 knife4j:
   enable: true
+  setting:
+    language: zh_cn
 
 springdoc:
   api-docs:
     enabled: true
+    path: /v3/api-docs
   swagger-ui:
-    enabled: false
+    enabled: true
+    path: /swagger-ui.html
 
 coze:
   api-token: ${COZE_API_TOKEN:}

@@ -10,6 +10,7 @@ import com.aimes.dto.Requests.SchedulingApplyRequest;
 import com.aimes.service.CozeConfigService;
 import com.aimes.service.CozeService;
 import com.aimes.service.WorkOrderService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
+@Tag(name = "AI / Coze")
 @RestController
 @RequestMapping("/api/coze")
 @RequiredArgsConstructor
