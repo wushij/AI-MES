@@ -1,6 +1,6 @@
 package com.aimes.controller;
 
-import cn.dev33.satoken.annotation.SaCheckRole;
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import com.aimes.common.Result;
 import com.aimes.dto.Requests.ExceptionCreateRequest;
@@ -30,7 +30,7 @@ public class ExceptionController {
     private final ExceptionService exceptionService;
 
     @GetMapping
-    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    @SaCheckPermission("异常上报")
     public Result<Map<String, Object>> list(@RequestParam(defaultValue = "1") long page,
                                             @RequestParam(defaultValue = "10") long size,
                                             @RequestParam(required = false) String keyword,
@@ -40,25 +40,25 @@ public class ExceptionController {
     }
 
     @GetMapping("/{id}")
-    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    @SaCheckPermission("异常上报")
     public Result<Map<String, Object>> detail(@PathVariable Long id) {
         return Result.ok(exceptionService.detail(id));
     }
 
     @PostMapping
-    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    @SaCheckPermission("异常上报")
     public Result<Map<String, Object>> create(@Valid @RequestBody ExceptionCreateRequest request) {
         return Result.ok(exceptionService.create(request));
     }
 
     @PutMapping("/{id}/handle")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission(value = {"生产计划", "工单管理"}, mode = SaMode.OR)
     public Result<Map<String, Object>> handle(@PathVariable Long id, @Valid @RequestBody ExceptionHandleRequest request) {
         return Result.ok(exceptionService.handle(id, request));
     }
 
     @DeleteMapping("/{id}")
-    @SaCheckRole("admin")
+    @SaCheckPermission("用户管理")
     public Result<Void> delete(@PathVariable Long id) {
         exceptionService.delete(id);
         return Result.ok("异常记录已删除", null);

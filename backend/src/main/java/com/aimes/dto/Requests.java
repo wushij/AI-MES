@@ -99,6 +99,7 @@ public final class Requests {
         @NotBlank(message = "当前工序不能为空")
         private String processName;
         private Boolean completeCurrentProcess;
+        private Long deviceId;
         private String remark;
     }
 
@@ -248,5 +249,106 @@ public final class Requests {
         private String welcomeMessage;
         @NotNull(message = "启用状态不能为空")
         private Boolean enabled;
+    }
+
+    @Data
+    public static class DeviceSaveRequest {
+        private String deviceCode;
+        @NotBlank(message = "设备名称不能为空")
+        private String deviceName;
+        private Long categoryId;
+        private String deviceType;
+        private String brand;
+        private String model;
+        private String serialNumber;
+        private String workshop;
+        private String lineName;
+        private String station;
+        private Long managerId;
+        @com.fasterxml.jackson.annotation.JsonFormat(pattern = "yyyy-MM-dd")
+        private java.time.LocalDate purchaseDate;
+        @com.fasterxml.jackson.annotation.JsonFormat(pattern = "yyyy-MM-dd")
+        private java.time.LocalDate installDate;
+        @com.fasterxml.jackson.annotation.JsonFormat(pattern = "yyyy-MM-dd")
+        private java.time.LocalDate enableDate;
+        @com.fasterxml.jackson.annotation.JsonFormat(pattern = "yyyy-MM-dd")
+        private java.time.LocalDate warrantyDate;
+        private String status;
+        private Long teamId;
+        private String remark;
+    }
+
+    @Data
+    public static class DeviceStatusRequest {
+        @NotBlank(message = "设备状态不能为空")
+        private String status;
+        private String remark;
+    }
+
+    @Data
+    public static class DeviceCategorySaveRequest {
+        private Long parentId;
+        @NotBlank(message = "分类名称不能为空")
+        private String categoryName;
+        private Integer sortNo;
+    }
+
+    @Data
+    public static class ProcessRouteSaveRequest {
+        private String routeCode;
+        @NotBlank(message = "路线名称不能为空")
+        private String routeName;
+        private String productName;
+        private String remark;
+        /** draft | submit | publish */
+        private String saveMode;
+        @NotEmpty(message = "工序列表不能为空")
+        private List<ProcessOperationItem> operations;
+    }
+
+    @Data
+    public static class ProcessOperationItem {
+        private Long id;
+        @NotNull(message = "工序序号不能为空")
+        private Integer seqNo;
+        private String operationCode;
+        @NotBlank(message = "工序名称不能为空")
+        private String operationName;
+        private Double standardHours;
+        private Double prepHours;
+        private Double changeoverHours;
+        private Integer needReport;
+        private Integer needCheck;
+        private Integer needScan;
+        private String remark;
+        private List<ProcessParameterItem> parameters;
+        private List<Long> deviceIds;
+        private List<Long> categoryIds;
+        private List<ProcessMaterialItem> materials;
+    }
+
+    @Data
+    public static class ProcessMaterialItem {
+        private Long materialId;
+        private java.math.BigDecimal qty;
+        private String unit;
+        private String materialType;
+        private String remark;
+    }
+
+    @Data
+    public static class ProcessRouteRejectRequest {
+        @NotBlank(message = "驳回原因不能为空")
+        private String reason;
+    }
+
+    @Data
+    public static class ProcessParameterItem {
+        @NotBlank(message = "参数名称不能为空")
+        private String paramName;
+        private String paramValue;
+        private String minValue;
+        private String maxValue;
+        private String unit;
     }
 }

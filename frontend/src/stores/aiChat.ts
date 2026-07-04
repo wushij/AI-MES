@@ -110,6 +110,27 @@ export const useAiChatStore = defineStore('aiChat', () => {
     return isWelcomeOnly(msgs)
   }
 
+  function isEmptyNewConversation(session: ChatSession): boolean {
+    return session.title === '新对话' && isSessionEmpty(session.id)
+  }
+
+  function sortSessions(list: ChatSession[]): ChatSession[] {
+    const emptyNew: ChatSession[] = []
+    const rest: ChatSession[] = []
+    for (const session of list) {
+      if (isEmptyNewConversation(session)) {
+        emptyNew.push(session)
+      } else {
+        rest.push(session)
+      }
+    }
+    const byUpdatedAtDesc = (a: ChatSession, b: ChatSession) =>
+      (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)
+    emptyNew.sort(byUpdatedAtDesc)
+    rest.sort(byUpdatedAtDesc)
+    return [...emptyNew, ...rest]
+  }
+
   function findReusableEmptySession(): ChatSession | null {
     return sessions.value.find(
       (session) => session.title === '新对话' && isSessionEmpty(session.id)
@@ -145,10 +166,16 @@ export const useAiChatStore = defineStore('aiChat', () => {
   function activateSession(session: ChatSession) {
     activeSessionId.value = session.id
     session.updatedAt = new Date().toISOString()
-    sessions.value = [session, ...sessions.value.filter((item) => item.id !== session.id)]
     const key = getSessionKey(session.id)
     if (!sessionMessages.value[key]?.length) {
       setSessionMessages(key, getWelcomeMessage(session.id, welcomeMessage.value))
+    }
+    const existing = sessions.value.find((item) => item.id === session.id)
+    if (existing) {
+      Object.assign(existing, session)
+      sessions.value = sortSessions([...sessions.value])
+    } else {
+      sessions.value = sortSessions([session, ...sessions.value])
     }
   }
 
@@ -206,8 +233,8 @@ export const useAiChatStore = defineStore('aiChat', () => {
       updatedAt: new Date().toISOString()
     }
     activeSessionId.value = session.id
-    sessions.value = [session, ...sessions.value.filter((item) => item.id !== session.id)]
     setSessionMessages(getSessionKey(session.id), getWelcomeMessage(session.id, welcomeMessage.value))
+    sessions.value = sortSessions([session, ...sessions.value.filter((item) => item.id !== session.id)])
     return session
   }
 
@@ -230,9 +257,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
           String(item.id).startsWith('sess_') &&
           !remoteSessions.some((remote) => String(remote.id) === String(item.id))
       )
-      sessions.value = [...localOnly, ...remoteSessions].sort(
-        (a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)
-      )
+      sessions.value = sortSessions([...localOnly, ...remoteSessions])
       sessions.value.forEach(enrichSessionFullTitle)
     } finally {
       if (!silent) {
@@ -462,12 +487,15 @@ export const useAiChatStore = defineStore('aiChat', () => {
         session.updatedAt = new Date().toISOString()
         session.id = resolvedSessionId
       } else {
-        sessions.value.unshift({
-          id: resolvedSessionId,
-          title: sessionTitleFromMessage(content),
-          fullTitle: content,
-          updatedAt: new Date().toISOString()
-        })
+        sessions.value = sortSessions([
+          ...sessions.value,
+          {
+            id: resolvedSessionId,
+            title: sessionTitleFromMessage(content),
+            fullTitle: content,
+            updatedAt: new Date().toISOString()
+          }
+        ])
       }
 
       if (String(resolvedSessionId) !== String(sessionId)) {

@@ -38,6 +38,21 @@ export interface SchedulingContextException {
   workOrderNo?: string
   eventType?: string
   description?: string
+  deviceId?: number | string
+  deviceCode?: string
+  deviceName?: string
+}
+
+export interface SchedulingContextDevice {
+  id: number | string
+  deviceCode: string
+  deviceName: string
+  lineName?: string
+  status?: string
+  statusLabel?: string
+  loadRate?: number
+  openExceptionCount?: number
+  available?: boolean
 }
 
 export interface SchedulingMaterialAlert {
@@ -53,6 +68,7 @@ export interface SchedulingContext {
   materialAlerts: SchedulingMaterialAlert[]
   exceptions: SchedulingContextException[]
   teams: TeamLoadRow[]
+  devices?: SchedulingContextDevice[]
   kpi: Record<string, number>
 }
 

@@ -262,10 +262,41 @@
             <template #title>异常影响提示</template>
             <ul class="impact-list">
               <li v-for="exc in contextExceptions.slice(0, 3)" :key="exc.id">
-                {{ exc.workOrderNo }} · {{ exceptionTypeLabel(exc.eventType) }}：{{ exc.description }}
+                {{ exc.workOrderNo }} · {{ exceptionTypeLabel(exc.eventType) }}
+                <template v-if="exc.deviceName"> · {{ exc.deviceName }}</template>
+                ：{{ exc.description }}
               </li>
             </ul>
           </el-alert>
+
+          <!-- 设备负荷（上下文） -->
+          <el-card v-if="appliedConstraints.deviceLoad && contextDevices.length" shadow="never" class="result-section">
+            <template #header>
+              <div class="section-title-wrapper">
+                <div class="section-indicator section-indicator--red" />
+                <span class="section-title">设备负荷概览</span>
+                <el-button link type="primary" size="small" @click="router.push('/devices')">设备管理</el-button>
+              </div>
+            </template>
+            <div class="team-load-grid">
+              <div v-for="dev in contextDevices" :key="dev.id" class="team-load-card">
+                <div class="team-load-card__head">
+                  <strong>{{ dev.deviceName }}</strong>
+                  <span>{{ dev.statusLabel ?? dev.status }}</span>
+                </div>
+                <el-progress
+                  :percentage="dev.loadRate ?? 0"
+                  :stroke-width="10"
+                  :color="(dev.loadRate ?? 0) >= 85 ? '#ef4444' : '#4f46e5'"
+                />
+                <div class="team-load-card__meta">
+                  <span>{{ dev.deviceCode }}</span>
+                  <span>{{ dev.lineName || '未分配产线' }}</span>
+                  <span v-if="dev.openExceptionCount">异常 {{ dev.openExceptionCount }}</span>
+                </div>
+              </div>
+            </div>
+          </el-card>
 
           <!-- 2. 甘特图 -->
           <el-card shadow="never" class="result-section">
@@ -618,6 +649,7 @@ const selectedSituations = computed(() => {
 })
 
 const contextExceptions = computed(() => schedulingContext.value?.exceptions ?? [])
+const contextDevices = computed(() => schedulingContext.value?.devices ?? [])
 const materialAlerts = computed(() => schedulingContext.value?.materialAlerts ?? [])
 
 const kpiCards = computed(() => {
@@ -628,7 +660,8 @@ const kpiCards = computed(() => {
     { label: '当前工单', value: base.selectedCount ?? (form.selectedWorkOrderId != null ? 1 : 0), tone: 'primary' },
     { label: '交期风险', value: base.overdueCount ?? 0, tone: 'danger' },
     { label: '未处理异常', value: base.exceptionCount ?? 0, tone: 'warning' },
-    { label: '缺料预警', value: base.materialWarningCount ?? 0, tone: 'amber' }
+    { label: '缺料预警', value: base.materialWarningCount ?? 0, tone: 'amber' },
+    { label: '设备故障', value: base.deviceFaultCount ?? 0, tone: 'danger' }
   ]
 })
 
@@ -927,7 +960,7 @@ function goToWorkOrdersAfterApply() {
 
 .kpi-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
 }
 

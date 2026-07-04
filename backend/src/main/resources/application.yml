@@ -1,19 +1,19 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
 spring:
   application:
     name: ai-mes-backend
   datasource:
-    url: jdbc:mysql://localhost:3306/AI-MES?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-    username: root
-    password: root
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:AI-MES}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
   data:
     redis:
-      host: localhost
-      port: 6379
-      database: 0
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
       timeout: 5s
   jackson:
     default-property-inclusion: non_null
@@ -56,6 +56,9 @@ springdoc:
   swagger-ui:
     enabled: true
     path: /swagger-ui.html
+
+aimes:
+  upload-dir: ${UPLOAD_DIR:uploads}
 
 coze:
   api-token: ${COZE_API_TOKEN:}

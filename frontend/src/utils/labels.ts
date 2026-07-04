@@ -48,6 +48,10 @@ export function roleLabel(value?: string) {
       return '管理员'
     case 'supervisor':
       return '车间主管'
+    case 'planner':
+      return '计划与物控'
+    case 'engineer':
+      return '设备与品质工程师'
     case 'worker':
       return '普通员工'
     default:

@@ -6,12 +6,14 @@ import {
   Calendar,
   List,
   Operation,
+  SetUp,
   UserFilled,
   Warning,
   Box,
   ChatDotRound,
   TrendCharts,
-  Setting
+  Setting,
+  Monitor
 } from '@element-plus/icons-vue'
 import BrandMark from '@/components/BrandMark.vue'
 import WorkshopSummaryCard from './WorkshopSummaryCard.vue'
@@ -27,8 +29,10 @@ const navItems: NavItem[] = [
   { path: '/dashboard', label: '首页驾驶舱', icon: HomeFilled },
   { path: '/plans', label: '生产计划', icon: Calendar, permission: '生产计划' },
   { path: '/work-orders', label: '工单管理', icon: List, permission: ['工单管理', '工单反馈'] },
+  { path: '/process-management', label: '工艺管理', icon: SetUp, permission: '工艺管理' },
   { path: '/process', label: '工序进度', icon: Operation, permission: '工序进度' },
   { path: '/teams', label: '班组管理', icon: UserFilled, permission: '班组' },
+  { path: '/devices', label: '设备管理', icon: Monitor, permission: '设备' },
   { path: '/exceptions', label: '异常管理', icon: Warning, permission: '异常上报' },
   { path: '/materials', label: '物料预警', icon: Box, permission: '物料' },
   { path: '/ai-chat', label: '智能客服', icon: ChatDotRound, permission: 'AI 客服' },

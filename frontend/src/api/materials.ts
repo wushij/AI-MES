@@ -27,3 +27,7 @@ export function deleteMaterial(id: number | string) {
 export function getMaterialAlerts() {
   return request.get<Material[]>('/materials/alerts').then((res) => res.data)
 }
+
+export function getMaterialOptions() {
+  return request.get<Array<{ id: number | string; materialCode: string; materialName: string; unit: string; stockQty: number }>>('/materials/options').then((res) => res.data)
+}

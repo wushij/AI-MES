@@ -1,7 +1,6 @@
 package com.aimes.controller;
 
-import cn.dev33.satoken.annotation.SaCheckRole;
-import cn.dev33.satoken.annotation.SaMode;
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aimes.common.Result;
 import com.aimes.dto.Requests.MaterialCreateRequest;
 import com.aimes.dto.Requests.MaterialUpdateRequest;
@@ -31,34 +30,41 @@ public class MaterialController {
     private final MaterialService materialService;
 
     @GetMapping
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("物料")
     public Result<Map<String, Object>> list(@RequestParam(required = false) String keyword,
                                             @RequestParam(required = false) String status) {
         return Result.ok(materialService.list(keyword, status));
     }
 
     @GetMapping("/alerts")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("物料")
     public Result<List<Map<String, Object>>> alerts() {
         return Result.ok(materialService.alerts());
     }
 
+    @GetMapping("/options")
+    @SaCheckPermission(value = {"物料", "工艺管理", "系统配置"}, mode = cn.dev33.satoken.annotation.SaMode.OR)
+    public Result<List<Map<String, Object>>> options() {
+        return Result.ok(materialService.options());
+    }
+
     @PostMapping
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("物料")
     public Result<Map<String, Object>> create(@Valid @RequestBody MaterialCreateRequest request) {
         return Result.ok(materialService.create(request));
     }
 
     @PutMapping("/{id}")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("物料")
     public Result<Map<String, Object>> update(@PathVariable Long id, @Valid @RequestBody MaterialUpdateRequest request) {
         return Result.ok(materialService.update(id, request));
     }
 
     @DeleteMapping("/{id}")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("物料")
     public Result<Void> delete(@PathVariable Long id) {
         materialService.delete(id);
         return Result.ok("删除成功", null);
     }
 }
+

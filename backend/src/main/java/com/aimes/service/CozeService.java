@@ -72,6 +72,7 @@ public class CozeService {
     private final AuthService authService;
     private final CozeConfigService cozeConfigService;
     private final DashboardService dashboardService;
+    private final DeviceService deviceService;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
@@ -647,6 +648,11 @@ public class CozeService {
             parameters.put("material_status", "[]");
         }
         parameters.put("constraints_json", objectMapper.writeValueAsString(constraints));
+        if (Boolean.TRUE.equals(constraints.get("deviceLoad"))) {
+            parameters.put("devices_json", objectMapper.writeValueAsString(deviceService.schedulingLoads()));
+        } else {
+            parameters.put("devices_json", "[]");
+        }
         parameters.put("current_time", LocalDateTime.now().format(SCHEDULING_TIME_FORMAT));
 
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -732,6 +738,7 @@ public class CozeService {
                 .toList();
 
         List<Map<String, Object>> teams = buildSchedulingTeamLoads(workOrders);
+        List<Map<String, Object>> devices = deviceService.schedulingLoads();
 
         long overdueCount = workOrderViews.stream()
                 .filter(row -> Boolean.TRUE.equals(row.get("overdue")))
@@ -742,12 +749,14 @@ public class CozeService {
         kpi.put("overdueCount", overdueCount);
         kpi.put("exceptionCount", exceptions.size());
         kpi.put("materialWarningCount", materialAlerts.size());
+        kpi.put("deviceFaultCount", devices.stream().filter(row -> "fault".equals(row.get("status")) || "repairing".equals(row.get("status"))).count());
 
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("workOrders", workOrderViews);
         context.put("materialAlerts", materialAlerts);
         context.put("exceptions", exceptions);
         context.put("teams", teams);
+        context.put("devices", devices);
         context.put("kpi", kpi);
         return context;
     }
@@ -831,6 +840,17 @@ public class CozeService {
         row.put("eventType", event.getEventType());
         row.put("workOrderId", event.getWorkOrderId());
         row.put("workOrderNo", order == null ? null : order.getOrderNo());
+        row.put("deviceId", event.getDeviceId());
+        if (event.getDeviceId() != null) {
+            try {
+                Map<String, Object> device = deviceService.detail(event.getDeviceId());
+                row.put("deviceCode", device.get("deviceCode"));
+                row.put("deviceName", device.get("deviceName"));
+                row.put("deviceStatus", device.get("status"));
+            } catch (BusinessException ignored) {
+                // device may have been removed
+            }
+        }
         row.put("description", event.getDescription());
         row.put("status", event.getStatus());
         row.put("occurTime", event.getOccurTime());

@@ -100,7 +100,7 @@
 
     <el-dialog
       v-model="progressDialogVisible"
-      width="560px"
+      width="680px"
       class="custom-order-dialog"
       :show-close="true"
     >
@@ -156,8 +156,37 @@
           </el-form-item>
 
           <el-form-item label="当前工序" prop="currentProcess">
-            <el-input v-model="progressForm.currentProcess" placeholder="请输入当前所处的工序名称" class="custom-input" />
+            <el-select v-model="progressForm.currentProcess" filterable placeholder="选择当前工序" class="custom-input full-width" @change="onProcessChange">
+              <el-option v-for="name in processOptions" :key="name" :label="name" :value="name" />
+            </el-select>
           </el-form-item>
+
+          <el-form-item v-if="allowedDevices.length" label="使用设备">
+            <el-select v-model="progressForm.deviceId" filterable clearable placeholder="选择工序允许的设备" class="custom-input full-width">
+              <el-option v-for="item in allowedDevices" :key="item.id" :label="`${item.deviceName} (${item.deviceCode})`" :value="item.id" />
+            </el-select>
+          </el-form-item>
+
+          <div v-if="currentMaterials.length" class="process-bind-block">
+            <div class="bind-title">工序物料</div>
+            <el-table :data="currentMaterials" size="small" border>
+              <el-table-column prop="materialName" label="物料" min-width="120" />
+              <el-table-column prop="qty" label="用量" width="80" />
+              <el-table-column prop="unit" label="单位" width="70" />
+              <el-table-column label="类型" width="80">
+                <template #default="{ row }">{{ materialTypeLabel(row.materialType) }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div v-if="currentSops.length" class="process-bind-block">
+            <div class="bind-title">作业指导书 (SOP)</div>
+            <div class="sop-links">
+              <el-button v-for="sop in currentSops" :key="sop.id" link type="primary" @click="previewExecutionSop(sop)">
+                {{ sop.fileName }}
+              </el-button>
+            </div>
+          </div>
 
           <el-form-item label="备注说明">
             <el-input
@@ -180,6 +209,17 @@
         </div>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="sopPreviewVisible" :title="previewSopItem?.fileName || 'SOP 预览'" width="80%" top="5vh">
+      <div v-loading="previewLoading" class="sop-preview-box">
+        <img v-if="previewBlobUrl && previewSopItem?.fileType === 'image'" :src="previewBlobUrl" alt="SOP" />
+        <iframe v-else-if="previewBlobUrl && previewSopItem?.fileType === 'pdf'" :src="previewBlobUrl" />
+        <video v-else-if="previewBlobUrl && previewSopItem?.fileType === 'video'" :src="previewBlobUrl" controls />
+        <div v-else-if="previewBlobUrl" class="sop-download-hint">
+          <el-link :href="previewBlobUrl" target="_blank" type="primary">点击下载/打开文件</el-link>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -194,6 +234,9 @@ import ProgressBar from '@/components/common/ProgressBar.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import { getProcessTasks } from '@/api/process'
 import { claimWorkOrder, updateWorkOrderProgress } from '@/api/workOrders'
+import { getProcessExecutionContext, getProcessOperationNames, materialTypeLabel, type ProcessOperation, type ProcessSop } from '@/api/processRoutes'
+import { TOKEN_STORAGE_KEY } from '@/api/request'
+import { getDeviceOptions } from '@/api/devices'
 import { normalizePriority, priorityLabel } from '@/utils/labels'
 
 type BoardStatus = 'pendingClaim' | 'inProgress' | 'completedToday'
@@ -227,7 +270,14 @@ const allTasks = ref<TaskRow[]>([])
 
 const filters = reactive({ keyword: '', boardStatus: '' as '' | BoardStatus })
 const pagination = reactive({ page: 1, size: 10, total: 0 })
-const progressForm = reactive({ progress: 0, currentProcess: '', remark: '' })
+const progressForm = reactive({ progress: 0, currentProcess: '', remark: '', deviceId: undefined as number | string | undefined })
+const processOptions = ref<string[]>(['备料', '装配', '检测', '包装'])
+const executionOperations = ref<ProcessOperation[]>([])
+const allDeviceOptions = ref<Array<{ id: number | string; deviceName: string; deviceCode: string; categoryId?: number | string }>>([])
+const sopPreviewVisible = ref(false)
+const previewLoading = ref(false)
+const previewSopItem = ref<ProcessSop | null>(null)
+const previewBlobUrl = ref('')
 const rules: FormRules = {
   progress: [{ required: true, message: '请输入进度', trigger: 'change' }],
   currentProcess: [{ required: true, message: '请输入工序', trigger: 'blur' }]
@@ -265,7 +315,46 @@ const emptyText = computed(() => {
   return '暂无工单任务'
 })
 
-onMounted(loadBoard)
+const currentOperation = computed(() =>
+  executionOperations.value.find((item) => item.operationName === progressForm.currentProcess)
+)
+
+const currentMaterials = computed(() => currentOperation.value?.materials ?? [])
+const currentSops = computed(() => currentOperation.value?.sops ?? [])
+
+const allowedDevices = computed(() => {
+  const op = currentOperation.value
+  if (!op?.devices?.length) return []
+  const ids = new Set<number | string>()
+  op.devices.forEach((bind) => {
+    if (bind.bindType === 'device' && bind.deviceId) ids.add(bind.deviceId)
+  })
+  const categoryIds = op.devices.filter((b) => b.bindType === 'category').map((b) => b.categoryId)
+  return allDeviceOptions.value.filter((d) => ids.has(d.id) || (d.categoryId && categoryIds.includes(d.categoryId)))
+})
+
+onMounted(() => {
+  void loadProcessOptions()
+  void loadDeviceOptions()
+  loadBoard()
+})
+
+async function loadDeviceOptions() {
+  try {
+    allDeviceOptions.value = await getDeviceOptions()
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+async function loadProcessOptions() {
+  try {
+    const names = await getProcessOperationNames()
+    if (names.length) processOptions.value = names
+  } catch (error) {
+    console.error(error)
+  }
+}
 
 watch(
   () => filteredTasks.value.length,
@@ -322,8 +411,48 @@ async function claimTask(task: TaskRow) {
 
 function openProgressDialog(task: TaskRow) {
   activeTask.value = task
-  Object.assign(progressForm, { progress: task.progress, currentProcess: task.currentProcess, remark: '' })
+  Object.assign(progressForm, { progress: task.progress, currentProcess: task.currentProcess, remark: '', deviceId: undefined })
   progressDialogVisible.value = true
+  void loadExecutionContext(task.id)
+}
+
+async function loadExecutionContext(workOrderId: string | number) {
+  try {
+    const ctx = await getProcessExecutionContext(workOrderId)
+    executionOperations.value = ctx.operations ?? []
+    if (executionOperations.value.length) {
+      processOptions.value = executionOperations.value.map((item) => item.operationName)
+    }
+    onProcessChange()
+  } catch (error) {
+    console.error(error)
+    executionOperations.value = []
+  }
+}
+
+function onProcessChange() {
+  progressForm.deviceId = undefined
+}
+
+async function previewExecutionSop(row: ProcessSop) {
+  previewSopItem.value = row
+  sopPreviewVisible.value = true
+  previewLoading.value = true
+  if (previewBlobUrl.value) URL.revokeObjectURL(previewBlobUrl.value)
+  previewBlobUrl.value = ''
+  try {
+    const base = import.meta.env.VITE_API_BASE_URL || '/api'
+    const res = await fetch(`${base}/process-routes/sop/${row.id}/file`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem(TOKEN_STORAGE_KEY) || ''}` }
+    })
+    if (!res.ok) throw new Error('加载失败')
+    previewBlobUrl.value = URL.createObjectURL(await res.blob())
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('SOP 预览失败')
+  } finally {
+    previewLoading.value = false
+  }
 }
 
 async function submitProgress() {
@@ -334,6 +463,7 @@ async function submitProgress() {
     await updateWorkOrderProgress(activeTask.value.id, {
       progress: progressForm.progress,
       processName: progressForm.currentProcess,
+      deviceId: progressForm.deviceId,
       remark: progressForm.remark
     })
     ElMessage.success('进度已更新')
@@ -614,5 +744,38 @@ function mapTask(item: Record<string, unknown>, boardStatus: BoardStatus): TaskR
   display: flex;
   justify-content: flex-start;
   margin-top: 12px;
+}
+
+.process-bind-block {
+  margin-bottom: 16px;
+}
+
+.bind-title {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.sop-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sop-preview-box {
+  min-height: 360px;
+}
+
+.sop-preview-box img,
+.sop-preview-box iframe,
+.sop-preview-box video {
+  width: 100%;
+  min-height: 360px;
+  border: none;
+}
+
+.sop-download-hint {
+  padding: 24px;
+  text-align: center;
 }
 </style>

@@ -1,6 +1,6 @@
 package com.aimes.controller;
 
-import cn.dev33.satoken.annotation.SaCheckRole;
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import com.aimes.common.Result;
 import com.aimes.dto.Requests.CozeChatRequest;
@@ -11,8 +11,10 @@ import com.aimes.service.CozeConfigService;
 import com.aimes.service.CozeService;
 import com.aimes.service.WorkOrderService;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,9 +23,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.http.MediaType;
 
 import java.util.List;
 import java.util.Map;
@@ -39,31 +38,31 @@ public class CozeController {
     private final WorkOrderService workOrderService;
 
     @GetMapping("/config")
-    @SaCheckRole("admin")
+    @SaCheckPermission("Coze 配置")
     public Result<Map<String, Object>> config() {
         return Result.ok(cozeConfigService.getConfigView());
     }
 
     @GetMapping("/welcome")
-    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    @SaCheckPermission("AI 客服")
     public Result<Map<String, Object>> welcome() {
         return Result.ok(Map.of("welcomeMessage", cozeConfigService.getWelcomeMessage()));
     }
 
     @PutMapping("/config")
-    @SaCheckRole("admin")
+    @SaCheckPermission("Coze 配置")
     public Result<Map<String, Object>> saveConfig(@Valid @RequestBody CozeConfigSaveRequest request) {
         return Result.ok("保存成功", cozeConfigService.saveConfig(request));
     }
 
     @PostMapping("/chat")
-    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    @SaCheckPermission("AI 客服")
     public Result<Map<String, Object>> chat(@Valid @RequestBody CozeChatRequest request) {
         return Result.ok(cozeService.chat(request));
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    @SaCheckPermission("AI 客服")
     public void chatStream(@Valid @RequestBody CozeChatRequest request, HttpServletResponse response) {
         response.setContentType("text/event-stream");
         response.setCharacterEncoding("UTF-8");
@@ -73,25 +72,25 @@ public class CozeController {
     }
 
     @GetMapping("/chat/history")
-    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    @SaCheckPermission("AI 客服")
     public Result<List<Map<String, Object>>> history(@RequestParam(required = false) String sessionId) {
         return Result.ok(cozeService.history(sessionId));
     }
 
     @DeleteMapping("/chat/history")
-    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    @SaCheckPermission("AI 客服")
     public Result<Integer> deleteHistory(@RequestParam String sessionId) {
         return Result.ok("删除成功", cozeService.deleteSession(sessionId));
     }
 
     @PostMapping("/scheduling")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("排产")
     public Result<Map<String, Object>> scheduling(@Valid @RequestBody CozeSchedulingRequest request) {
         return Result.ok(cozeService.scheduling(request));
     }
 
     @GetMapping("/scheduling/context")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("排产")
     public Result<Map<String, Object>> schedulingContext(@RequestParam String workOrderIds) {
         List<Long> ids = java.util.Arrays.stream(workOrderIds.split(","))
                 .map(String::trim)
@@ -102,25 +101,25 @@ public class CozeController {
     }
 
     @PostMapping("/scheduling/apply")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("排产")
     public Result<Map<String, Object>> applyScheduling(@Valid @RequestBody SchedulingApplyRequest request) {
         return Result.ok("排产建议已应用到工单", workOrderService.applySchedulingSuggestions(request));
     }
 
     @GetMapping("/health")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission(value = {"Coze 配置", "排产"}, mode = SaMode.OR)
     public Result<Map<String, Object>> health() {
         return Result.ok(cozeService.health());
     }
 
     @GetMapping("/health/chat")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("Coze 配置")
     public Result<Map<String, Object>> healthChat() {
         return Result.ok(cozeService.healthChat());
     }
 
     @GetMapping("/health/workflow")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("Coze 配置")
     public Result<Map<String, Object>> healthWorkflow() {
         return Result.ok(cozeService.healthWorkflow());
     }

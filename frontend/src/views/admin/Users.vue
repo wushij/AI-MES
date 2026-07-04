@@ -17,6 +17,8 @@
           <el-select v-model="filters.role" placeholder="角色" clearable class="toolbar__select">
             <el-option label="管理员" value="admin" />
             <el-option label="车间主管" value="supervisor" />
+            <el-option label="计划与物控" value="planner" />
+            <el-option label="设备与品质工程师" value="engineer" />
             <el-option label="普通员工" value="worker" />
           </el-select>
           <el-select v-model="filters.enabled" placeholder="状态" clearable class="toolbar__select">
@@ -45,7 +47,7 @@
         <el-table-column prop="username" label="用户名" min-width="140" align="center" />
         <el-table-column label="角色" min-width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.role === 'admin' ? 'danger' : row.role === 'supervisor' ? 'warning' : 'info'">
+            <el-tag :type="row.role === 'admin' ? 'danger' : row.role === 'supervisor' ? 'warning' : row.role === 'planner' ? 'success' : row.role === 'engineer' ? '' : 'info'">
               {{ roleText(row.role) }}
             </el-tag>
           </template>
@@ -100,6 +102,8 @@
           <el-select v-model="formModel.role" class="full-width">
             <el-option label="管理员" value="admin" />
             <el-option label="车间主管" value="supervisor" />
+            <el-option label="计划与物控" value="planner" />
+            <el-option label="设备与品质工程师" value="engineer" />
             <el-option label="普通员工" value="worker" />
           </el-select>
         </el-form-item>

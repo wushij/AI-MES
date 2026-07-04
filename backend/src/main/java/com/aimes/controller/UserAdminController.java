@@ -1,6 +1,6 @@
 package com.aimes.controller;
 
-import cn.dev33.satoken.annotation.SaCheckRole;
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aimes.common.Result;
 import com.aimes.dto.Requests.ResetPasswordRequest;
 import com.aimes.dto.Requests.UserSaveRequest;
@@ -24,7 +24,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor
-@SaCheckRole("admin")
+@SaCheckPermission("用户管理")
 public class UserAdminController {
 
     private final UserAdminService userAdminService;

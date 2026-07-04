@@ -1,7 +1,6 @@
 package com.aimes.controller;
 
-import cn.dev33.satoken.annotation.SaCheckRole;
-import cn.dev33.satoken.annotation.SaMode;
+import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.aimes.common.Result;
 import com.aimes.service.DashboardService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,7 +16,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/dashboard")
 @RequiredArgsConstructor
-@SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+@SaCheckLogin
 public class DashboardController {
 
     private final DashboardService dashboardService;
@@ -37,8 +36,14 @@ public class DashboardController {
         return Result.ok(dashboardService.alerts());
     }
 
+    @GetMapping("/device-summary")
+    public Result<Map<String, Object>> deviceSummary() {
+        return Result.ok(dashboardService.deviceSummary());
+    }
+
     @GetMapping("/workshop-summary")
     public Result<Map<String, Object>> workshopSummary() {
         return Result.ok(dashboardService.workshopSummary());
     }
 }
+

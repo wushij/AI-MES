@@ -73,7 +73,7 @@ async function submit() {
   }
 }
 
-function fillAccount(role: 'admin' | 'supervisor' | 'worker') {
+function fillAccount(role: 'admin' | 'supervisor' | 'worker' | 'planner' | 'engineer') {
   username.value = role
   password.value = '123456'
 }
@@ -194,6 +194,8 @@ onMounted(() => {
           <div class="auth-demo__accounts">
             <el-button text @click="fillAccount('admin')">admin</el-button>
             <el-button text @click="fillAccount('supervisor')">supervisor</el-button>
+            <el-button text @click="fillAccount('planner')">planner</el-button>
+            <el-button text @click="fillAccount('engineer')">engineer</el-button>
             <el-button text @click="fillAccount('worker')">worker</el-button>
           </div>
         </div>

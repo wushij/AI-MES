@@ -18,6 +18,8 @@ public class ProdWorkOrder {
     private Long planId;
     private String productName;
     private Long teamId;
+    private Long routingId;
+    private String routeVersion;
     private String processName;
     private Integer progress;
     private String status;

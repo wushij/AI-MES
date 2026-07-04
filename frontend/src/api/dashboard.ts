@@ -6,7 +6,7 @@ export async function getDashboardData() {
     request.get<Record<string, unknown>>('/dashboard/stats').then((r) => r.data),
     request.get<Record<string, unknown>[]>('/dashboard/progress').then((r) => r.data),
     request
-      .get<{ exceptions?: Record<string, unknown>[]; materials?: Record<string, unknown>[] }>(
+      .get<{ exceptions?: Record<string, unknown>[]; materials?: Record<string, unknown>[]; devices?: Record<string, unknown>[] }>(
         '/dashboard/alerts'
       )
       .then((r) => r.data)
@@ -21,7 +21,11 @@ export async function getDashboardData() {
       openExceptionCount: Number(stats.openExceptionCount ?? 0),
       newExceptionCount: Number(stats.newExceptionCount ?? 0),
       materialAlertCount: Number(stats.materialAlertCount ?? 0),
-      newMaterialAlertCount: Number(stats.newMaterialAlertCount ?? 0)
+      newMaterialAlertCount: Number(stats.newMaterialAlertCount ?? 0),
+      deviceTotalCount: Number(stats.deviceTotalCount ?? 0),
+      deviceRunningCount: Number(stats.deviceRunningCount ?? 0),
+      deviceFaultCount: Number(stats.deviceFaultCount ?? 0),
+      deviceTodayAlertCount: Number(stats.deviceTodayAlertCount ?? 0)
     },
     teamProgress: progress.map((item) => ({
       teamName: String(item.teamName ?? '--'),
@@ -35,9 +39,11 @@ export async function getDashboardData() {
       code: item.eventNo,
       typeLabel: exceptionTypeLabel(String(item.eventType ?? '')),
       workOrderCode: item.workOrderId,
+      deviceLabel: item.deviceCode && item.deviceName ? `${item.deviceCode} · ${item.deviceName}` : '',
       reportedAt: item.occurTime,
       status: item.status
     })),
+    deviceList: (alerts.devices ?? []) as Array<Record<string, unknown>>,
     materialAlerts: (alerts.materials ?? []).map((item) => ({
       id: item.id,
       name: item.materialName,

@@ -9,8 +9,10 @@
 --   或在 Navicat / DBeaver 中直接运行本文件
 --
 -- 演示账号（密码均为 123456，BCrypt 加密存储）：
---   admin      → 管理员
+--   admin      → 管理员（全部权限）
 --   supervisor → 车间主管
+--   planner    → 计划与物控
+--   engineer   → 设备与品质工程师
 --   worker     → 普通员工
 -- =============================================================================
 
@@ -38,6 +40,16 @@ DROP TABLE IF EXISTS prod_plan;
 DROP TABLE IF EXISTS sys_user;
 DROP TABLE IF EXISTS prod_team;
 DROP TABLE IF EXISTS mat_material;
+DROP TABLE IF EXISTS mdm_operation_material;
+DROP TABLE IF EXISTS mdm_operation_device;
+DROP TABLE IF EXISTS mdm_operation_sop;
+DROP TABLE IF EXISTS mdm_operation_param;
+DROP TABLE IF EXISTS mdm_routing_history;
+DROP TABLE IF EXISTS mdm_operation;
+DROP TABLE IF EXISTS mdm_routing;
+DROP TABLE IF EXISTS dev_device_history;
+DROP TABLE IF EXISTS dev_device;
+DROP TABLE IF EXISTS dev_device_category;
 DROP TABLE IF EXISTS sys_role_permission;
 DROP TABLE IF EXISTS sys_notification;
 
@@ -100,6 +112,8 @@ CREATE TABLE prod_work_order (
     plan_id BIGINT NULL COMMENT '关联计划ID',
     product_name VARCHAR(100) NOT NULL COMMENT '产品名称',
     team_id BIGINT NULL COMMENT '负责班组ID',
+    routing_id BIGINT NULL COMMENT '引用工艺路线ID',
+    route_version VARCHAR(16) NULL COMMENT '工艺版本快照',
     process_name VARCHAR(50) NULL COMMENT '当前工序',
     progress INT NOT NULL DEFAULT 0 COMMENT '进度 0-100',
     status VARCHAR(20) NOT NULL COMMENT '状态：pending/assigned/producing/exception/done',
@@ -123,6 +137,8 @@ CREATE TABLE prod_work_order (
 CREATE TABLE prod_process_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
     work_order_id BIGINT NOT NULL COMMENT '工单ID',
+    operation_id BIGINT NULL COMMENT '工序主数据ID',
+    device_id BIGINT NULL COMMENT '报工使用设备',
     process_name VARCHAR(50) NOT NULL COMMENT '工序名称',
     seq_no INT NOT NULL COMMENT '工序序号',
     status VARCHAR(20) NOT NULL COMMENT '状态：waiting/running/done',
@@ -154,6 +170,7 @@ CREATE TABLE exc_event (
     KEY idx_exception_order (work_order_id),
     KEY idx_exception_status (status),
     KEY idx_exception_type (event_type),
+    KEY idx_exception_device (device_id),
     UNIQUE KEY uk_event_no (event_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='异常事件';
 
@@ -172,6 +189,182 @@ CREATE TABLE mat_material (
     UNIQUE KEY uk_material_code (material_code),
     KEY idx_material_alert (alert_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='物料库存';
+
+-- 设备分类
+CREATE TABLE dev_device_category (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    parent_id BIGINT NOT NULL DEFAULT 0 COMMENT '父分类ID，0为根',
+    category_name VARCHAR(64) NOT NULL COMMENT '分类名称',
+    sort_no INT NOT NULL DEFAULT 0 COMMENT '排序',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_category_parent (parent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备分类';
+
+-- 设备台账
+CREATE TABLE dev_device (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    device_code VARCHAR(32) NOT NULL COMMENT '设备编号',
+    device_name VARCHAR(64) NOT NULL COMMENT '设备名称',
+    category_id BIGINT NULL COMMENT '分类ID',
+    device_type VARCHAR(32) NULL COMMENT '设备类型（兼容字段）',
+    brand VARCHAR(64) NULL COMMENT '品牌',
+    model VARCHAR(64) NULL COMMENT '型号',
+    serial_number VARCHAR(64) NULL COMMENT '序列号',
+    workshop VARCHAR(64) NULL COMMENT '所属车间',
+    line_name VARCHAR(64) NULL COMMENT '所属产线',
+    station VARCHAR(64) NULL COMMENT '所属工位',
+    manager_id BIGINT NULL COMMENT '负责人用户ID',
+    purchase_date DATE NULL COMMENT '购买日期',
+    install_date DATE NULL COMMENT '安装日期',
+    enable_date DATE NULL COMMENT '启用日期',
+    warranty_date DATE NULL COMMENT '保修截止',
+    status VARCHAR(16) NOT NULL DEFAULT 'idle' COMMENT '状态：idle/running/paused/stopped/maintenance/repairing/fault/scrapped',
+    team_id BIGINT NULL COMMENT '责任班组',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_device_code (device_code),
+    KEY idx_device_team (team_id),
+    KEY idx_device_status (status),
+    KEY idx_device_category (category_id),
+    KEY idx_device_manager (manager_id),
+    CONSTRAINT fk_device_category FOREIGN KEY (category_id) REFERENCES dev_device_category(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备台账';
+
+-- 设备履历
+CREATE TABLE dev_device_history (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    device_id BIGINT NOT NULL COMMENT '设备ID',
+    action_type VARCHAR(32) NOT NULL COMMENT '动作类型',
+    action_desc VARCHAR(255) NOT NULL COMMENT '动作描述',
+    operator_id BIGINT NULL COMMENT '操作人ID',
+    operator_name VARCHAR(50) NULL COMMENT '操作人姓名',
+    related_event_id BIGINT NULL COMMENT '关联异常ID',
+    before_value VARCHAR(64) NULL COMMENT '变更前值',
+    after_value VARCHAR(64) NULL COMMENT '变更后值',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    KEY idx_history_device (device_id),
+    KEY idx_history_time (create_time),
+    CONSTRAINT fk_history_device FOREIGN KEY (device_id) REFERENCES dev_device(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备履历';
+
+-- 工艺路线
+CREATE TABLE mdm_routing (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    route_code VARCHAR(32) NOT NULL COMMENT '路线编码',
+    route_name VARCHAR(64) NOT NULL COMMENT '路线名称',
+    product_name VARCHAR(100) NULL COMMENT '适用产品（可选，空为通用）',
+    version VARCHAR(16) NOT NULL DEFAULT 'V1.0' COMMENT '当前版本',
+    status VARCHAR(16) NOT NULL DEFAULT 'published' COMMENT '状态：draft/pending_approval/published/rejected/disabled',
+    rejected_reason VARCHAR(255) NULL COMMENT '驳回原因',
+    is_default TINYINT NOT NULL DEFAULT 0 COMMENT '是否默认路线',
+    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_route_code (route_code),
+    KEY idx_routing_product (product_name),
+    KEY idx_routing_default (is_default)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工艺路线';
+
+-- 工艺工序
+CREATE TABLE mdm_operation (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    routing_id BIGINT NOT NULL COMMENT '路线ID',
+    operation_code VARCHAR(32) NULL COMMENT '工序编号',
+    seq_no INT NOT NULL COMMENT '工序序号',
+    operation_name VARCHAR(50) NOT NULL COMMENT '工序名称',
+    standard_hours DECIMAL(8,2) NULL COMMENT '标准工时(小时)',
+    prep_hours DECIMAL(8,2) NULL COMMENT '准备时间(小时)',
+    changeover_hours DECIMAL(8,2) NULL COMMENT '换型时间(小时)',
+    need_report TINYINT NOT NULL DEFAULT 1 COMMENT '是否报工',
+    need_check TINYINT NOT NULL DEFAULT 0 COMMENT '是否质检',
+    need_scan TINYINT NOT NULL DEFAULT 0 COMMENT '是否扫码',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_routing_seq (routing_id, seq_no),
+    KEY idx_operation_routing (routing_id),
+    CONSTRAINT fk_operation_routing FOREIGN KEY (routing_id) REFERENCES mdm_routing(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工艺工序';
+
+-- 工艺参数
+CREATE TABLE mdm_operation_param (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    operation_id BIGINT NOT NULL COMMENT '工序ID',
+    param_name VARCHAR(64) NOT NULL COMMENT '参数名称',
+    param_value VARCHAR(64) NULL COMMENT '标准值',
+    min_value VARCHAR(32) NULL COMMENT '最小值',
+    max_value VARCHAR(32) NULL COMMENT '最大值',
+    unit VARCHAR(16) NULL COMMENT '单位',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_param_operation (operation_id),
+    CONSTRAINT fk_param_operation FOREIGN KEY (operation_id) REFERENCES mdm_operation(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工艺参数';
+
+-- 工艺版本/变更记录
+CREATE TABLE mdm_routing_history (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    routing_id BIGINT NOT NULL COMMENT '路线ID',
+    version VARCHAR(16) NOT NULL COMMENT '版本号',
+    action_type VARCHAR(32) NOT NULL COMMENT '动作类型',
+    action_desc VARCHAR(255) NOT NULL COMMENT '描述',
+    operator_id BIGINT NULL COMMENT '操作人ID',
+    operator_name VARCHAR(50) NULL COMMENT '操作人姓名',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    KEY idx_routing_history_route (routing_id),
+    CONSTRAINT fk_routing_history FOREIGN KEY (routing_id) REFERENCES mdm_routing(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工艺变更记录';
+
+-- 工序 SOP
+CREATE TABLE mdm_operation_sop (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    operation_id BIGINT NOT NULL COMMENT '工序ID',
+    file_name VARCHAR(255) NOT NULL COMMENT '原始文件名',
+    file_type VARCHAR(32) NOT NULL COMMENT 'pdf/image/video/doc',
+    file_path VARCHAR(512) NOT NULL COMMENT '存储相对路径',
+    file_size BIGINT NULL COMMENT '字节数',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_sop_operation (operation_id),
+    CONSTRAINT fk_sop_operation FOREIGN KEY (operation_id) REFERENCES mdm_operation(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序SOP';
+
+-- 工序设备绑定
+CREATE TABLE mdm_operation_device (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    operation_id BIGINT NOT NULL COMMENT '工序ID',
+    device_id BIGINT NULL COMMENT '具体设备',
+    category_id BIGINT NULL COMMENT '设备分类',
+    bind_type VARCHAR(16) NOT NULL COMMENT 'device/category',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    KEY idx_op_device_operation (operation_id),
+    KEY idx_op_device_device (device_id),
+    KEY idx_op_device_category (category_id),
+    CONSTRAINT fk_op_device_operation FOREIGN KEY (operation_id) REFERENCES mdm_operation(id) ON DELETE CASCADE,
+    CONSTRAINT fk_op_device_device FOREIGN KEY (device_id) REFERENCES dev_device(id) ON DELETE CASCADE,
+    CONSTRAINT fk_op_device_category FOREIGN KEY (category_id) REFERENCES dev_device_category(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序设备绑定';
+
+-- 工序物料绑定
+CREATE TABLE mdm_operation_material (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    operation_id BIGINT NOT NULL COMMENT '工序ID',
+    material_id BIGINT NOT NULL COMMENT '物料ID',
+    qty DECIMAL(12,4) NOT NULL DEFAULT 1 COMMENT '用量',
+    unit VARCHAR(16) NULL COMMENT '单位',
+    material_type VARCHAR(16) NOT NULL DEFAULT 'raw' COMMENT 'raw/semi/aux/tooling',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_op_material_operation (operation_id),
+    KEY idx_op_material_material (material_id),
+    CONSTRAINT fk_op_material_operation FOREIGN KEY (operation_id) REFERENCES mdm_operation(id) ON DELETE CASCADE,
+    CONSTRAINT fk_op_material_material FOREIGN KEY (material_id) REFERENCES mat_material(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序物料绑定';
 
 -- AI 客服聊天记录
 CREATE TABLE ai_chat_log (
@@ -213,11 +406,18 @@ INSERT INTO sys_coze_config (id, bot_id, api_url, workflow_id, welcome_message, 
 
 -- 角色权限初始数据
 INSERT INTO sys_role_permission (role_key, permission) VALUES
-('admin', '生产计划'), ('admin', '工单管理'), ('admin', '班组'), ('admin', '物料'), ('admin', '排产'),
+-- admin 拥有所有权限
+('admin', '生产计划'), ('admin', '工单管理'), ('admin', '班组'), ('admin', '物料'), ('admin', '设备'), ('admin', '排产'),
 ('admin', '工序进度'), ('admin', '工单反馈'), ('admin', '异常上报'), ('admin', 'AI 客服'),
-('admin', '用户管理'), ('admin', '角色管理'), ('admin', 'Coze 配置'), ('admin', '系统配置'),
-('supervisor', '生产计划'), ('supervisor', '工单管理'), ('supervisor', '班组'), ('supervisor', '物料'),
-('supervisor', '排产'), ('supervisor', '异常上报'), ('supervisor', 'AI 客服'),
+('admin', '用户管理'), ('admin', '角色管理'), ('admin', 'Coze 配置'), ('admin', '系统配置'), ('admin', '工艺管理'), ('admin', '工艺审批'),
+-- supervisor（车间主管）：全面管理车间运行，含工单反馈查阅；工艺审批移至专业工程师
+('supervisor', '生产计划'), ('supervisor', '工单管理'), ('supervisor', '工单反馈'), ('supervisor', '班组'),
+('supervisor', '物料'), ('supervisor', '设备'), ('supervisor', '排产'), ('supervisor', '异常上报'), ('supervisor', 'AI 客服'), ('supervisor', '工艺管理'),
+-- planner（计划与物控）：主导计划、排产、物料与工艺，需查看工单执行情况
+('planner', '生产计划'), ('planner', '工单管理'), ('planner', '物料'), ('planner', '排产'), ('planner', '工艺管理'), ('planner', 'AI 客服'),
+-- engineer（设备与品质工程师）：设备运维 + 工序质量管控，需参考工艺与工单上下文
+('engineer', '设备'), ('engineer', '工单管理'), ('engineer', '工序进度'), ('engineer', '异常上报'), ('engineer', '工艺管理'), ('engineer', 'AI 客服'),
+-- worker（普通操作工）：仅限执行层操作
 ('worker', '工序进度'), ('worker', '工单反馈'), ('worker', '异常上报'), ('worker', 'AI 客服');
 
 -- -----------------------------------------------------------------------------
@@ -233,9 +433,58 @@ INSERT INTO prod_team (id, team_code, team_name, leader_id, member_count, line_n
 INSERT INTO sys_user (id, username, password, real_name, role, team_id, status, create_time, update_time) VALUES
 (1, 'admin',      '$2b$12$a.77zLvBGe70Uew9BZlQau4SlwoGi2vMiSUcvaq/BrHcVwHA2IZyG', '系统管理员', 'admin',      NULL, 1, NOW(), NOW()),
 (2, 'supervisor', '$2b$12$a.77zLvBGe70Uew9BZlQau4SlwoGi2vMiSUcvaq/BrHcVwHA2IZyG', '张伟',       'supervisor', 1,    1, NOW(), NOW()),
-(3, 'worker',     '$2b$12$a.77zLvBGe70Uew9BZlQau4SlwoGi2vMiSUcvaq/BrHcVwHA2IZyG', '王芳',       'worker',     1,    1, NOW(), NOW());
+(3, 'worker',     '$2b$12$a.77zLvBGe70Uew9BZlQau4SlwoGi2vMiSUcvaq/BrHcVwHA2IZyG', '王芳',       'worker',     1,    1, NOW(), NOW()),
+(4, 'planner',    '$2b$12$a.77zLvBGe70Uew9BZlQau4SlwoGi2vMiSUcvaq/BrHcVwHA2IZyG', '李计划',     'planner',    NULL, 1, NOW(), NOW()),
+(5, 'engineer',   '$2b$12$a.77zLvBGe70Uew9BZlQau4SlwoGi2vMiSUcvaq/BrHcVwHA2IZyG', '赵工',       'engineer',   NULL, 1, NOW(), NOW());
 
 UPDATE prod_team SET leader_id = 2 WHERE id = 1;
+
+-- 设备分类
+INSERT INTO dev_device_category (id, parent_id, category_name, sort_no, created_time, updated_time) VALUES
+(1, 0, '生产设备', 1, NOW(), NOW()),
+(2, 1, '装配设备', 1, NOW(), NOW()),
+(3, 1, '检测设备', 2, NOW(), NOW()),
+(4, 0, '物流设备', 2, NOW(), NOW());
+
+-- 设备台账
+INSERT INTO dev_device (id, device_code, device_name, category_id, device_type, brand, model, workshop, line_name, station, manager_id, status, team_id, enable_date, remark, created_time, updated_time) VALUES
+(1, 'DEV-001', '装配工位 A1', 2, 'assembly',   '精工', 'ASM-100', '一车间', '产线A', '工位A1', 2, 'fault',       1, '2025-01-10', '甲班主装配位', NOW(), NOW()),
+(2, 'DEV-002', '检测台 Q1',   3, 'inspection', '海克斯', 'QC-200', '一车间', '产线A', '工位Q1', 2, 'idle',        1, '2025-02-01', '尺寸检测',     NOW(), NOW()),
+(3, 'DEV-003', '包装线 P1',   4, 'packaging',  '联塑',   'PK-50',  '二车间', '产线B', '工位P1', 2, 'idle',        2, '2025-03-15', '乙班包装',     NOW(), NOW());
+
+-- 默认工艺路线
+INSERT INTO mdm_routing (id, route_code, route_name, product_name, version, status, is_default, enabled, remark, created_time, updated_time) VALUES
+(1, 'ROUTE-STD', '标准装配路线', NULL, 'V1.0', 'published', 1, 1, '默认四道工序，适用于通用产品', NOW(), NOW()),
+(2, 'ROUTE-C',   '精密组件C工艺', '精密组件C', 'V1.0', 'published', 0, 1, '精密组件C专用路线', NOW(), NOW());
+
+INSERT INTO mdm_operation (id, routing_id, operation_code, seq_no, operation_name, standard_hours, prep_hours, need_report, need_check, need_scan, remark, created_time, updated_time) VALUES
+(1, 1, 'OP10', 1, '备料', 1.00, 0.25, 1, 0, 0, NULL, NOW(), NOW()),
+(2, 1, 'OP20', 2, '装配', 4.00, 0.50, 1, 0, 1, NULL, NOW(), NOW()),
+(3, 1, 'OP30', 3, '检测', 1.50, 0.20, 1, 1, 0, '需全检', NOW(), NOW()),
+(4, 1, 'OP40', 4, '包装', 1.00, 0.15, 1, 0, 0, NULL, NOW(), NOW()),
+(5, 2, 'OP10', 1, '备料', 1.20, 0.30, 1, 0, 0, '精密件备料', NOW(), NOW()),
+(6, 2, 'OP20', 2, '装配', 5.00, 0.60, 1, 0, 1, '高精度装配', NOW(), NOW()),
+(7, 2, 'OP30', 3, '检测', 2.00, 0.25, 1, 1, 1, '三坐标检测', NOW(), NOW()),
+(8, 2, 'OP40', 4, '包装', 1.00, 0.15, 1, 0, 0, NULL, NOW(), NOW());
+
+INSERT INTO mdm_operation_param (operation_id, param_name, param_value, min_value, max_value, unit, created_time, updated_time) VALUES
+(2, '扭矩', '12', '10', '14', 'N·m', NOW(), NOW()),
+(2, '温度', '25', '20', '30', '℃', NOW(), NOW()),
+(3, '尺寸公差', '0.05', '0', '0.05', 'mm', NOW(), NOW()),
+(6, '扭矩', '15', '13', '17', 'N·m', NOW(), NOW()),
+(7, '尺寸公差', '0.02', '0', '0.02', 'mm', NOW(), NOW());
+
+INSERT INTO mdm_routing_history (routing_id, version, action_type, action_desc, operator_id, operator_name, create_time) VALUES
+(1, 'V1.0', 'publish', '初始发布标准装配路线', 2, '张主管', NOW()),
+(2, 'V1.0', 'publish', '初始发布精密组件C工艺', 2, '张主管', NOW());
+
+INSERT INTO mdm_operation_device (operation_id, device_id, category_id, bind_type, created_time) VALUES
+(2, NULL, 2, 'category', NOW()),
+(2, 2, NULL, 'device', NOW());
+
+INSERT INTO mdm_operation_material (operation_id, material_id, qty, unit, material_type, remark, created_time, updated_time) VALUES
+(1, 1, 2.0000, 'kg', 'raw', '备料主材', NOW(), NOW()),
+(1, 2, 1.0000, 'pcs', 'aux', '辅料', NOW(), NOW());
 
 -- 生产计划
 INSERT INTO prod_plan (id, plan_no, product_name, plan_qty, plan_date, status, created_by, remark, release_time, created_time, updated_time) VALUES
@@ -266,7 +515,14 @@ INSERT INTO prod_process_record (work_order_id, process_name, seq_no, status, st
 -- 异常事件
 INSERT INTO exc_event (id, event_no, event_type, work_order_id, device_id, description, status, reporter_id, handler_id, occur_time, create_time, handle_time, handle_action, handle_result) VALUES
 (1, 'EXC-2026-001', 'shortage', 1, NULL, '装配工位反馈部分紧固件短缺，需要仓库补料。',       'processing', 3, 2,    '2026-06-30 10:30:00', NOW(), NULL, NULL, NULL),
-(2, 'EXC-2026-002', 'quality',  2, NULL, '首件检测出现尺寸偏差，待主管确认处理方案。',       'open',       3, NULL, '2026-06-30 11:15:00', NOW(), NULL, NULL, NULL);
+(2, 'EXC-2026-002', 'quality',  2, NULL, '首件检测出现尺寸偏差，待主管确认处理方案。',       'open',       3, NULL, '2026-06-30 11:15:00', NOW(), NULL, NULL, NULL),
+(3, 'EXC-2026-003', 'device',   1, 1,    '装配工位 A1 伺服电机异响，已暂停该工位生产。',     'open',       3, NULL, '2026-07-04 09:20:00', NOW(), NULL, NULL, NULL);
+
+-- 设备履历（演示）
+INSERT INTO dev_device_history (device_id, action_type, action_desc, operator_id, operator_name, related_event_id, before_value, after_value, create_time) VALUES
+(1, 'create', '新建设备台账', 2, '张主管', NULL, NULL, 'idle', '2025-01-10 08:00:00'),
+(1, 'status', '设备投入运行', 2, '张主管', NULL, 'idle', 'running', '2025-01-10 09:00:00'),
+(1, 'exception', '设备异常上报：伺服电机异响', 3, '李员工', 3, 'running', 'fault', '2026-07-04 09:20:00');
 
 -- 物料库存
 INSERT INTO mat_material (id, material_code, material_name, stock_qty, safety_stock, unit, alert_status, remark, created_time, updated_time) VALUES
@@ -420,7 +676,10 @@ ALTER TABLE prod_work_order
 ALTER TABLE prod_process_record
   ADD CONSTRAINT fk_process_order
   FOREIGN KEY (work_order_id) REFERENCES prod_work_order(id)
-  ON DELETE CASCADE ON UPDATE CASCADE;
+  ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD CONSTRAINT fk_process_device
+  FOREIGN KEY (device_id) REFERENCES dev_device(id)
+  ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE exc_event
   ADD CONSTRAINT fk_exc_order
@@ -431,6 +690,17 @@ ALTER TABLE exc_event
   ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT fk_exc_handler
   FOREIGN KEY (handler_id) REFERENCES sys_user(id)
+  ON DELETE SET NULL ON UPDATE CASCADE,
+  ADD CONSTRAINT fk_exc_device
+  FOREIGN KEY (device_id) REFERENCES dev_device(id)
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE dev_device
+  ADD CONSTRAINT fk_device_team
+  FOREIGN KEY (team_id) REFERENCES prod_team(id)
+  ON DELETE SET NULL ON UPDATE CASCADE,
+  ADD CONSTRAINT fk_device_manager
+  FOREIGN KEY (manager_id) REFERENCES sys_user(id)
   ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE ai_chat_log

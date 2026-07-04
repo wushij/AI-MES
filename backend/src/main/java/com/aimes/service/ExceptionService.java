@@ -3,10 +3,12 @@ package com.aimes.service;
 import com.aimes.common.BusinessException;
 import com.aimes.dto.Requests.ExceptionCreateRequest;
 import com.aimes.dto.Requests.ExceptionHandleRequest;
+import com.aimes.entity.DevDevice;
 import com.aimes.entity.ExcEvent;
 import com.aimes.entity.ProdProcessRecord;
 import com.aimes.entity.ProdWorkOrder;
 import com.aimes.entity.SysUser;
+import com.aimes.mapper.DevDeviceMapper;
 import com.aimes.mapper.ExcEventMapper;
 import com.aimes.mapper.ProdProcessRecordMapper;
 import com.aimes.mapper.ProdWorkOrderMapper;
@@ -33,6 +35,8 @@ public class ExceptionService {
     private final SysUserMapper sysUserMapper;
     private final AuthService authService;
     private final SysNotificationService sysNotificationService;
+    private final DevDeviceMapper devDeviceMapper;
+    private final DeviceService deviceService;
 
     @Transactional
     public void deleteByWorkOrderId(Long workOrderId) {
@@ -88,6 +92,7 @@ public class ExceptionService {
     public Map<String, Object> create(ExceptionCreateRequest request) {
         SysUser user = authService.currentUser();
         ProdWorkOrder order = requireOrder(request.getWorkOrderId());
+        deviceService.validateDeviceForException(request.getDeviceId(), request.getEventType());
 
         ExcEvent event = new ExcEvent();
         event.setEventNo(nextEventNo());
@@ -100,6 +105,10 @@ public class ExceptionService {
         event.setOccurTime(request.getOccurTime());
         event.setCreateTime(LocalDateTime.now());
         excEventMapper.insert(event);
+
+        if (request.getDeviceId() != null && "device".equals(request.getEventType())) {
+            deviceService.onExceptionReported(request.getDeviceId(), event.getId(), user.getId(), user.getRealName());
+        }
 
         order.setStatus("exception");
         prodWorkOrderMapper.updateById(order);
@@ -164,6 +173,10 @@ public class ExceptionService {
                 paused.setStatus("running");
                 prodProcessRecordMapper.updateById(paused);
             }
+        }
+
+        if (event.getDeviceId() != null && "device".equals(event.getEventType())) {
+            deviceService.onExceptionHandled(event.getDeviceId(), event.getId(), recovered, user.getId(), user.getRealName());
         }
         return toView(event);
     }
@@ -245,6 +258,14 @@ public class ExceptionService {
         row.put("eventType", event.getEventType());
         row.put("workOrderId", event.getWorkOrderId());
         row.put("workOrderNo", workOrder == null ? null : workOrder.getOrderNo());
+        row.put("deviceId", event.getDeviceId());
+        if (event.getDeviceId() != null) {
+            DevDevice device = devDeviceMapper.selectById(event.getDeviceId());
+            if (device != null) {
+                row.put("deviceCode", device.getDeviceCode());
+                row.put("deviceName", device.getDeviceName());
+            }
+        }
         row.put("description", event.getDescription());
         row.put("status", event.getStatus());
         row.put("reporterId", event.getReporterId());

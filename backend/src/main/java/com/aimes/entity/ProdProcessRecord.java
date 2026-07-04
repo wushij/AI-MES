@@ -14,6 +14,8 @@ public class ProdProcessRecord {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long workOrderId;
+    private Long operationId;
+    private Long deviceId;
     private String processName;
     private Integer seqNo;
     private String status;
@@ -23,3 +25,5 @@ public class ProdProcessRecord {
     private LocalDateTime createdTime;
     private LocalDateTime updatedTime;
 }
+
+

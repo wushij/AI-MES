@@ -1,8 +1,20 @@
 <template>
   <div v-if="isSupervisor" class="view-page">
-    <PageHeader title="班组管理" subtitle="查看班组长、成员及当前任务分配情况。">
-      <el-button type="primary" @click="openCreate">新建班组</el-button>
-    </PageHeader>
+    <PageHeader title="班组管理" subtitle="查看班组长、成员及当前任务分配情况。" />
+
+    <!-- 过滤器和操作栏 -->
+    <el-card shadow="never" class="toolbar-card">
+      <div class="toolbar">
+        <div class="toolbar__filters">
+          <el-input v-model="filters.keyword" placeholder="搜索编号/名称/产线/组长" clearable class="toolbar__input" />
+        </div>
+        <div class="toolbar__actions">
+          <el-button class="action-btn-reset" @click="resetFilters">重置</el-button>
+          <el-button type="primary" class="action-btn-create" @click="openCreate">新建班组</el-button>
+          <el-button type="primary" class="action-btn-refresh" @click="loadTeams">刷新</el-button>
+        </div>
+      </div>
+    </el-card>
 
     <el-card shadow="hover">
       <el-table
@@ -208,13 +220,31 @@ const formRef = ref<FormInstance>()
 const teams = ref<TeamRow[]>([])
 const pagination = reactive({ page: 1, size: 10, total: 0 })
 
-const pagedTeams = computed(() => {
-  const start = (pagination.page - 1) * pagination.size
-  return teams.value.slice(start, start + pagination.size)
+const filters = reactive({ keyword: '' })
+
+const filteredTeams = computed(() => {
+  const kw = filters.keyword.trim().toLowerCase()
+  if (!kw) return teams.value
+  return teams.value.filter(
+    (t) =>
+      t.code.toLowerCase().includes(kw) ||
+      t.name.toLowerCase().includes(kw) ||
+      t.leaderName.toLowerCase().includes(kw) ||
+      t.lineName.toLowerCase().includes(kw)
+  )
 })
 
+const pagedTeams = computed(() => {
+  const start = (pagination.page - 1) * pagination.size
+  return filteredTeams.value.slice(start, start + pagination.size)
+})
+
+function resetFilters() {
+  filters.keyword = ''
+}
+
 watch(
-  () => teams.value.length,
+  () => filteredTeams.value.length,
   (count) => {
     pagination.total = count
     if ((pagination.page - 1) * pagination.size >= count && pagination.page > 1) {
@@ -650,5 +680,100 @@ async function openDetail(row: TeamRow) {
   display: flex;
   justify-content: flex-start;
   margin-top: 12px;
+}
+
+.toolbar-card {
+  border-radius: 16px;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+  margin-bottom: 16px;
+}
+.toolbar-card :deep(.el-card__body) {
+  padding: 16px 20px;
+}
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.toolbar__filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.toolbar__input {
+  width: 240px;
+}
+.toolbar__select {
+  width: 140px;
+}
+.toolbar__input :deep(.el-input__wrapper),
+.toolbar__select :deep(.el-input__wrapper),
+.toolbar__select :deep(.el-select__wrapper) {
+  border-radius: 20px !important;
+  background-color: #f8fafc !important;
+  box-shadow: 0 0 0 1px #e2e8f0 inset !important;
+  padding: 4px 16px !important;
+  transition: all 0.3s ease !important;
+  height: 38px;
+}
+.toolbar__input :deep(.el-input__wrapper.is-focus),
+.toolbar__select :deep(.el-input__wrapper.is-focus),
+.toolbar__select :deep(.el-select__wrapper.is-focus) {
+  background-color: #fff !important;
+  box-shadow: 0 0 0 1px #4f46e5 inset, 0 0 0 3px rgba(79, 70, 229, 0.15) !important;
+}
+.action-btn-reset {
+  border-radius: 20px !important;
+  padding: 8px 20px !important;
+  border: 1px solid #e2e8f0 !important;
+  transition: all 0.2s ease !important;
+  height: 38px !important;
+}
+.action-btn-reset:hover {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+.action-btn-create {
+  border-radius: 20px !important;
+  padding: 8px 20px !important;
+  background: #0f172a !important; /* Premium dark navy */
+  border: none !important;
+  color: white !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15) !important;
+  transition: all 0.2s ease !important;
+  height: 38px !important;
+  font-weight: 600 !important;
+}
+.action-btn-create:hover {
+  background: #1e293b !important;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.25) !important;
+}
+.action-btn-refresh {
+  border-radius: 20px !important;
+  padding: 8px 20px !important;
+  background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%) !important;
+  border: none !important;
+  color: white !important;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2) !important;
+  transition: all 0.2s ease !important;
+  height: 38px !important;
+}
+.action-btn-refresh:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.3) !important;
+}
+.full-width {
+  width: 100%;
 }
 </style>

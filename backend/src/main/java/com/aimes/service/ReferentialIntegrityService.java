@@ -6,6 +6,7 @@ import com.aimes.entity.ProdPlan;
 import com.aimes.entity.ProdTeam;
 import com.aimes.entity.ProdWorkOrder;
 import com.aimes.entity.SysUser;
+import com.aimes.mapper.DevDeviceMapper;
 import com.aimes.mapper.ExcEventMapper;
 import com.aimes.mapper.ProdPlanMapper;
 import com.aimes.mapper.ProdTeamMapper;
@@ -24,6 +25,7 @@ public class ReferentialIntegrityService {
     private final ProdPlanMapper prodPlanMapper;
     private final ProdWorkOrderMapper prodWorkOrderMapper;
     private final ExcEventMapper excEventMapper;
+    private final DevDeviceMapper devDeviceMapper;
 
     public void ensureTeamDeletable(Long teamId) {
         requireTeam(teamId);
@@ -35,6 +37,11 @@ public class ReferentialIntegrityService {
                 .eq(ProdWorkOrder::getTeamId, teamId));
         if (orders > 0) {
             throw new BusinessException("班组已关联工单，不能删除");
+        }
+        long devices = devDeviceMapper.selectCount(new LambdaQueryWrapper<com.aimes.entity.DevDevice>()
+                .eq(com.aimes.entity.DevDevice::getTeamId, teamId));
+        if (devices > 0) {
+            throw new BusinessException("班组已关联设备，不能删除");
         }
     }
 

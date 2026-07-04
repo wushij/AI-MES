@@ -36,6 +36,21 @@
 
         <el-table-column prop="workOrderCode" label="工单号" min-width="130" align="center" />
 
+        <el-table-column label="关联设备" min-width="140" align="center">
+          <template #default="{ row }">
+            <a
+              v-if="row.deviceId && userStore.canAccessPermission('设备')"
+              href="#"
+              class="device-link"
+              @click.prevent="openDeviceDetail(row.deviceId)"
+            >
+              {{ row.deviceLabel }}
+            </a>
+            <span v-else-if="row.deviceLabel">{{ row.deviceLabel }}</span>
+            <span v-else>--</span>
+          </template>
+        </el-table-column>
+
         <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip align="center" />
 
         <el-table-column prop="reporterName" label="上报人" min-width="110" align="center" />
@@ -143,12 +158,21 @@
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="关联设备 (可选)">
-            <el-input
-              v-model="reportForm.device"
-              placeholder="填写设备名称或编号"
-              class="custom-input"
-            />
+          <el-form-item v-if="reportForm.type === 'device'" label="关联设备" prop="deviceId">
+            <el-select
+              v-model="reportForm.deviceId"
+              filterable
+              placeholder="请选择设备（必填）"
+              class="full-width custom-select"
+            >
+              <el-option
+                v-for="item in deviceOptions"
+                :key="item.id"
+                :disabled="item.selectable === false"
+                :label="`${item.deviceCode} · ${item.deviceName}${item.statusLabel ? ` (${item.statusLabel})` : ''}`"
+                :value="item.id"
+              />
+            </el-select>
           </el-form-item>
         </div>
 
@@ -244,6 +268,23 @@
               {{ activeException.workOrderCode }}
             </div>
           </div>
+          <div v-if="activeException.deviceLabel" class="meta-item">
+            <div class="meta-item__label">
+              <el-icon><Monitor /></el-icon>
+              <span>关联设备</span>
+            </div>
+            <div class="meta-item__val">
+              <a
+                v-if="activeException.deviceId && userStore.canAccessPermission('设备')"
+                href="#"
+                class="device-link"
+                @click.prevent="openDeviceDetail(activeException.deviceId)"
+              >
+                {{ activeException.deviceLabel }}
+              </a>
+              <span v-else>{{ activeException.deviceLabel }}</span>
+            </div>
+          </div>
         </div>
 
         <!-- Description -->
@@ -312,6 +353,10 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="detailDialogVisible" title="设备详情" width="1000px" append-to-body destroy-on-close>
+      <DeviceDetail v-if="activeDeviceId" :id="activeDeviceId" @close="detailDialogVisible = false" />
+    </el-dialog>
+
   </div>
 
 </template>
@@ -328,11 +373,17 @@ import PageHeader from '@/components/common/PageHeader.vue'
 
 import StatusTag from '@/components/common/StatusTag.vue'
 
-import { WarningFilled, InfoFilled, User, Clock, Document, CircleCheck, View, Cpu, Box, Warning, More } from '@element-plus/icons-vue'
+import { WarningFilled, InfoFilled, User, Clock, Document, CircleCheck, View, Cpu, Box, Warning, More, Monitor } from '@element-plus/icons-vue'
 
 import { useUserStore } from '@/stores/user'
 
 import { exceptionTypeLabel } from '@/utils/labels'
+
+import { getDeviceOptions } from '@/api/devices'
+
+import DeviceDetail from './DeviceDetail.vue'
+
+import { normalizeList } from '@/utils/normalizeList'
 
 interface WorkOrderOption { id: string | number; code: string }
 
@@ -348,6 +399,8 @@ interface ExceptionRow {
   status: string;
   handleAction?: string;
   handleResult?: string;
+  deviceId?: string | number;
+  deviceLabel?: string;
 }
 
 const userStore = useUserStore()
@@ -373,7 +426,13 @@ const exceptions = ref<ExceptionRow[]>([])
 
 const workOrderOptions = ref<WorkOrderOption[]>([])
 
+const deviceOptions = ref<Array<{ id: string | number; deviceCode: string; deviceName: string; statusLabel?: string; selectable?: boolean }>>([])
+
 const activeException = ref<ExceptionRow | null>(null)
+
+const detailDialogVisible = ref(false)
+
+const activeDeviceId = ref<string | number | null>(null)
 
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600' }
 
@@ -385,17 +444,30 @@ const typeOptions = [{ label: '设备停机', value: 'device' }, { label: '缺�
 const filters = reactive({ keyword: '', type: '', status: '', dateRange: [] as string[] })
 const pagination = reactive({ page: 1, size: 10, total: 0 })
 
-const reportForm = reactive({ type: 'device', workOrderId: '', device: '', occurredAt: '', description: '' })
+const reportForm = reactive({ type: 'device', workOrderId: '', deviceId: undefined as number | string | undefined, occurredAt: '', description: '' })
 
 const handleForm = reactive({ measure: '', result: 'resolved' })
 
-const reportRules: FormRules = { type: [{ required: true, message: '请选择类型', trigger: 'change' }], workOrderId: [{ required: true, message: '请选择工单', trigger: 'change' }], occurredAt: [{ required: true, message: '请选择时间', trigger: 'change' }], description: [{ required: true, message: '请输入描述', trigger: 'blur' }] }
+const reportRules: FormRules = {
+  type: [{ required: true, message: '请选择类型', trigger: 'change' }],
+  workOrderId: [{ required: true, message: '请选择工单', trigger: 'change' }],
+  deviceId: [{
+    validator: (_rule, value, callback) => {
+      if (reportForm.type === 'device' && (value == null || value === '')) {
+        callback(new Error('设备停机异常必须选择关联设备'))
+      } else {
+        callback()
+      }
+    },
+    trigger: 'change'
+  }],
+  occurredAt: [{ required: true, message: '请选择时间', trigger: 'change' }],
+  description: [{ required: true, message: '请输入描述', trigger: 'blur' }]
+}
 
 const handleRules: FormRules = { measure: [{ required: true, message: '请输入处理措施', trigger: 'blur' }], result: [{ required: true, message: '请选择处理结果', trigger: 'change' }] }
 
-onMounted(() => { loadExceptions(); loadWorkOrderOptions() })
-
-import { normalizeList } from '@/utils/normalizeList'
+onMounted(() => { loadExceptions(); loadWorkOrderOptions(); loadDeviceOptions() })
 
 async function loadExceptions() {
   loading.value = true
@@ -441,7 +513,9 @@ async function loadExceptions() {
         reportedAt: String(item.occurTime ?? item.reportedAt ?? '--'),
         status: String(item.status ?? 'open'),
         handleAction: item.handleAction ?? null,
-        handleResult: item.handleResult ?? null
+        handleResult: item.handleResult ?? null,
+        deviceId: item.deviceId,
+        deviceLabel: item.deviceCode && item.deviceName ? `${item.deviceCode} · ${item.deviceName}` : (item.deviceName ? String(item.deviceName) : '')
       }
     })
   } catch (error) {
@@ -449,6 +523,14 @@ async function loadExceptions() {
     ElMessage.error('加载异常记录失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadDeviceOptions() {
+  try {
+    deviceOptions.value = await getDeviceOptions()
+  } catch (error) {
+    console.error(error)
   }
 }
 
@@ -465,7 +547,15 @@ async function loadWorkOrderOptions() {
   }
 }
 
-function openReportDialog() { Object.assign(reportForm, { type: 'device', workOrderId: '', device: '', occurredAt: currentDateTime(), description: '' }); reportDialogVisible.value = true }
+function openDeviceDetail(deviceId: string | number) {
+  activeDeviceId.value = deviceId
+  detailDialogVisible.value = true
+}
+
+function openReportDialog() {
+  Object.assign(reportForm, { type: 'device', workOrderId: '', deviceId: undefined, occurredAt: currentDateTime(), description: '' })
+  reportDialogVisible.value = true
+}
 
 async function submitReport() {
   const valid = await reportFormRef.value?.validate().catch(() => false)
@@ -473,11 +563,14 @@ async function submitReport() {
   submittingReport.value = true
   try {
     const api = (await import('@/api/exceptions')) as Record<string, any>
-    const payload = {
+    const payload: Record<string, unknown> = {
       eventType: reportForm.type,
       workOrderId: Number(reportForm.workOrderId),
       occurTime: reportForm.occurredAt,
       description: reportForm.description.trim()
+    }
+    if (reportForm.deviceId != null && reportForm.deviceId !== '') {
+      payload.deviceId = Number(reportForm.deviceId)
     }
     await (api.reportException?.(payload) ?? api.createException?.(payload))
     ElMessage.success('异常已上报')
@@ -574,6 +667,9 @@ function currentDateTime() {
 </script>
 
 <style scoped>
+.device-link { color: #4f46e5; text-decoration: none; }
+.device-link:hover { text-decoration: underline; }
+
 .view-page { display: flex; flex-direction: column; gap: 16px; }
 
 .toolbar-card { border-radius: 16px; }

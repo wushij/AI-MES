@@ -1,7 +1,6 @@
 package com.aimes.controller;
 
-import cn.dev33.satoken.annotation.SaCheckRole;
-import cn.dev33.satoken.annotation.SaMode;
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aimes.common.Result;
 import com.aimes.dto.Requests.PlanSaveRequest;
 import com.aimes.service.PlanService;
@@ -29,7 +28,7 @@ public class PlanController {
     private final PlanService planService;
 
     @GetMapping
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("生产计划")
     public Result<Map<String, Object>> list(@RequestParam(defaultValue = "1") long page,
                                             @RequestParam(defaultValue = "10") long size,
                                             @RequestParam(required = false) String keyword,
@@ -38,32 +37,32 @@ public class PlanController {
     }
 
     @GetMapping("/{id}")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("生产计划")
     public Result<Map<String, Object>> detail(@PathVariable Long id) {
         return Result.ok(planService.detail(id));
     }
 
     @PostMapping
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("生产计划")
     public Result<Map<String, Object>> create(@Valid @RequestBody PlanSaveRequest request) {
         return Result.ok(planService.create(request));
     }
 
     @PutMapping("/{id}")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("生产计划")
     public Result<Map<String, Object>> update(@PathVariable Long id, @Valid @RequestBody PlanSaveRequest request) {
         return Result.ok(planService.update(id, request));
     }
 
     @DeleteMapping("/{id}")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("生产计划")
     public Result<Void> delete(@PathVariable Long id) {
         planService.delete(id);
         return Result.ok("删除成功", null);
     }
 
     @PostMapping("/{id}/release")
-    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    @SaCheckPermission("生产计划")
     public Result<Map<String, Object>> release(@PathVariable Long id) {
         return Result.ok(planService.release(id));
     }

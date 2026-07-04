@@ -1,9 +1,11 @@
 package com.aimes.service;
 
+import com.aimes.entity.DevDevice;
 import com.aimes.entity.ExcEvent;
 import com.aimes.entity.MatMaterial;
 import com.aimes.entity.ProdPlan;
 import com.aimes.entity.ProdWorkOrder;
+import com.aimes.mapper.DevDeviceMapper;
 import com.aimes.mapper.ExcEventMapper;
 import com.aimes.mapper.MatMaterialMapper;
 import com.aimes.mapper.ProdPlanMapper;
@@ -30,6 +32,8 @@ public class DashboardService {
     private final ExcEventMapper excEventMapper;
     private final MatMaterialMapper matMaterialMapper;
     private final ProdTeamMapper prodTeamMapper;
+    private final DeviceService deviceService;
+    private final DevDeviceMapper devDeviceMapper;
 
     public Map<String, Object> stats() {
         LocalDate today = LocalDate.now();
@@ -78,6 +82,12 @@ public class DashboardService {
         stats.put("materialAlertCount", materialAlerts);
         stats.put("newMaterialAlertCount", newMaterialAlerts);
         stats.put("outputTrend", getOutputTrend());
+
+        Map<String, Object> deviceSummary = deviceService.summary();
+        stats.put("deviceTotalCount", deviceSummary.get("totalCount"));
+        stats.put("deviceRunningCount", deviceSummary.get("runningCount"));
+        stats.put("deviceFaultCount", deviceSummary.get("faultCount"));
+        stats.put("deviceTodayAlertCount", deviceSummary.get("todayAlertCount"));
         return stats;
     }
 
@@ -104,6 +114,10 @@ public class DashboardService {
         }).toList();
     }
 
+    public Map<String, Object> deviceSummary() {
+        return deviceService.summary();
+    }
+
     public Map<String, Object> alerts() {
         List<Map<String, Object>> latestExceptions = excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
                         .last("ORDER BY FIELD(status, 'open', 'processing', 'closed'), occur_time DESC limit 5"))
@@ -117,6 +131,14 @@ public class DashboardService {
                     row.put("status", event.getStatus());
                     row.put("occurTime", event.getOccurTime());
                     row.put("description", event.getDescription());
+                    row.put("deviceId", event.getDeviceId());
+                    if (event.getDeviceId() != null) {
+                        DevDevice device = devDeviceMapper.selectById(event.getDeviceId());
+                        if (device != null) {
+                            row.put("deviceCode", device.getDeviceCode());
+                            row.put("deviceName", device.getDeviceName());
+                        }
+                    }
                     return row;
                 })
                 .toList();
@@ -140,7 +162,11 @@ public class DashboardService {
                 })
                 .toList();
 
-        return Map.of("exceptions", latestExceptions, "materials", materialAlerts);
+        return Map.of(
+                "exceptions", latestExceptions,
+                "materials", materialAlerts,
+                "devices", deviceService.summary().get("devices")
+        );
     }
 
     public Map<String, Object> workshopSummary() {

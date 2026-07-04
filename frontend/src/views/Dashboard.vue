@@ -58,7 +58,37 @@
       </el-row>
 
       <el-row :gutter="16" class="section-gap">
-        <el-col :xs="24" :lg="24">
+        <el-col :span="24">
+          <el-card class="panel-card" shadow="hover">
+            <template #header>
+              <div class="panel-card__header">
+                <span>设备状态</span>
+                <el-button v-if="userStore.canAccessPermission('设备')" link type="primary" @click="router.push('/devices')">设备管理</el-button>
+              </div>
+            </template>
+            <div class="device-kpi-row">
+              <div class="device-kpi"><span>总数</span><strong>{{ summary.deviceTotalCount ?? 0 }}</strong></div>
+              <div class="device-kpi device-kpi--ok"><span>运行</span><strong>{{ summary.deviceRunningCount ?? 0 }}</strong></div>
+              <div class="device-kpi device-kpi--danger"><span>故障</span><strong>{{ summary.deviceFaultCount ?? 0 }}</strong></div>
+              <div class="device-kpi device-kpi--warn"><span>今日报警</span><strong>{{ summary.deviceTodayAlertCount ?? 0 }}</strong></div>
+            </div>
+            <el-table v-if="deviceList.length" :data="deviceList" stripe border size="small" :header-cell-style="tableHeaderStyle" class="panel-table">
+              <el-table-column prop="deviceCode" label="编号" min-width="90" align="center" />
+              <el-table-column prop="deviceName" label="名称" min-width="120" align="center" />
+              <el-table-column prop="lineName" label="产线" min-width="80" align="center" />
+              <el-table-column label="状态" width="90" align="center">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="deviceStatusTagType(row.status)">{{ row.statusLabel ?? deviceStatusLabel(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-else description="暂无设备数据" />
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <el-row :gutter="16" class="section-gap">
+        <el-col :span="24">
           <el-card class="panel-card" shadow="hover">
             <template #header>
               <div class="panel-card__header">
@@ -66,19 +96,23 @@
                 <el-button link type="primary" @click="router.push('/exceptions')">查看全部</el-button>
               </div>
             </template>
-            <el-table v-if="exceptionList.length" :data="exceptionList" stripe border highlight-current-row :header-cell-style="tableHeaderStyle">
+            <el-table v-if="exceptionList.length" :data="exceptionList" stripe border highlight-current-row :header-cell-style="tableHeaderStyle" class="panel-table">
               <el-table-column prop="code" label="异常单号" min-width="130" align="center" />
-              <el-table-column prop="typeLabel" label="类型" min-width="120" align="center" />
-              <el-table-column prop="workOrderCode" label="工单号" min-width="120" align="center" />
-              <el-table-column prop="reportedAt" label="上报时间" min-width="160" align="center" />
-              <el-table-column label="状态" width="110" align="center">
+              <el-table-column prop="typeLabel" label="类型" min-width="100" align="center" />
+              <el-table-column prop="workOrderCode" label="工单号" min-width="110" align="center" />
+              <el-table-column prop="deviceLabel" label="设备" min-width="120" align="center" />
+              <el-table-column prop="reportedAt" label="上报时间" min-width="150" align="center" />
+              <el-table-column label="状态" width="100" align="center">
                 <template #default="{ row }"><StatusTag :status="row.status" /></template>
               </el-table-column>
             </el-table>
             <el-empty v-else description="暂无异常记录" />
           </el-card>
         </el-col>
-        <el-col :xs="24" :lg="24">
+      </el-row>
+
+      <el-row :gutter="16" class="section-gap">
+        <el-col :span="24">
           <el-card class="panel-card" shadow="hover">
             <template #header>
               <div class="panel-card__header">
@@ -86,7 +120,7 @@
                 <el-button link type="primary" @click="router.push('/materials')">查看全部</el-button>
               </div>
             </template>
-            <el-table v-if="materialAlerts.length" :data="materialAlerts" stripe border highlight-current-row :header-cell-style="tableHeaderStyle">
+            <el-table v-if="materialAlerts.length" :data="materialAlerts" stripe border highlight-current-row :header-cell-style="tableHeaderStyle" class="panel-table">
               <el-table-column prop="name" label="物料" min-width="160" align="center" />
               <el-table-column prop="stockQty" label="库存" min-width="100" align="center" />
               <el-table-column prop="safetyStock" label="安全库存" min-width="110" align="center" />
@@ -114,6 +148,7 @@ import { getDashboardData } from '@/api/dashboard'
 import KpiCard from '@/components/common/KpiCard.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
+import { deviceStatusLabel, deviceStatusTagType } from '@/utils/deviceLabels'
 
 interface DashboardSummary {
   planCount: number
@@ -124,10 +159,15 @@ interface DashboardSummary {
   newExceptionCount: number
   materialAlertCount: number
   newMaterialAlertCount: number
+  deviceTotalCount?: number
+  deviceRunningCount?: number
+  deviceFaultCount?: number
+  deviceTodayAlertCount?: number
 }
 interface TeamProgressItem { teamName: string; completedQty: number; totalQty: number; progress: number }
 interface OutputTrendItem { date: string; outputQty: number }
-interface ExceptionItem { id: string | number; code: string; typeLabel: string; workOrderCode: string; reportedAt: string; status: string }
+interface ExceptionItem { id: string | number; code: string; typeLabel: string; workOrderCode: string; deviceLabel?: string; reportedAt: string; status: string }
+interface DeviceBriefItem { id: string | number; deviceCode: string; deviceName: string; lineName?: string; status?: string; statusLabel?: string }
 interface MaterialAlertItem { id: string | number; name: string; stockQty: number; safetyStock: number; gap: number }
 
 const router = useRouter()
@@ -141,9 +181,10 @@ const trendChart = shallowRef<echarts.ECharts>()
 const teamProgress = ref<TeamProgressItem[]>([])
 const outputTrend = ref<OutputTrendItem[]>([])
 const exceptionList = ref<ExceptionItem[]>([])
+const deviceList = ref<DeviceBriefItem[]>([])
 const materialAlerts = ref<MaterialAlertItem[]>([])
-const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600' }
-const summary = reactive<DashboardSummary>({ planCount: 0, planTrend: '0%', inProgressCount: 0, inProgressTrend: '0%', openExceptionCount: 0, newExceptionCount: 0, materialAlertCount: 0, newMaterialAlertCount: 0 })
+const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600', textAlign: 'center' as const }
+const summary = reactive<DashboardSummary>({ planCount: 0, planTrend: '0%', inProgressCount: 0, inProgressTrend: '0%', openExceptionCount: 0, newExceptionCount: 0, materialAlertCount: 0, newMaterialAlertCount: 0, deviceTotalCount: 0, deviceRunningCount: 0, deviceFaultCount: 0, deviceTodayAlertCount: 0 })
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 const role = computed(() => userStore.role)
 const isSupervisor = computed(() => userStore.isSupervisor || userStore.isAdmin)
@@ -201,6 +242,14 @@ async function loadDashboard(silent = false) {
     teamProgress.value = payload.teamProgress ?? []
     outputTrend.value = payload.outputTrend ?? []
     exceptionList.value = (payload.exceptionList ?? []) as ExceptionItem[]
+    deviceList.value = ((payload as { deviceList?: Record<string, unknown>[] }).deviceList ?? []).map((item) => ({
+      id: (item.id ?? '') as string | number,
+      deviceCode: String(item.deviceCode ?? ''),
+      deviceName: String(item.deviceName ?? ''),
+      lineName: item.lineName ? String(item.lineName) : '',
+      status: item.status ? String(item.status) : 'idle',
+      statusLabel: item.statusLabel ? String(item.statusLabel) : undefined
+    }))
     materialAlerts.value = (payload.materialAlerts ?? []).map((item) => ({
       id: item.id as string | number,
       name: String(item.name ?? ''),
@@ -371,5 +420,16 @@ function pad(value: number) { return String(value).padStart(2, '0') }
 .panel-card__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 600; }
 .chart-box { height: 320px; }
 .panel-card :deep(.el-card__body) { min-height: 180px; }
-@media (max-width: 900px) { .action-bar { align-items: flex-start; flex-direction: column; } .chart-box { height: 280px; } }
+.device-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.device-kpi { background: #f8fafc; border-radius: 12px; padding: 12px; text-align: center; }
+.device-kpi span { display: block; font-size: 12px; color: #64748b; }
+.device-kpi strong { font-size: 22px; color: #0f172a; }
+.device-kpi--ok strong { color: #16a34a; }
+.device-kpi--danger strong { color: #dc2626; }
+.device-kpi--warn strong { color: #d97706; }
+.panel-table :deep(.el-table__header .cell),
+.panel-table :deep(.el-table__body .cell) {
+  text-align: center;
+}
+@media (max-width: 900px) { .action-bar { align-items: flex-start; flex-direction: column; } .chart-box { height: 280px; } .device-kpi-row { grid-template-columns: repeat(2, 1fr); } }
 </style>

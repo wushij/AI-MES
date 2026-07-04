@@ -19,13 +19,21 @@ public class RoleService {
     private static final String ADMIN_ROLE_KEY = "admin";
 
     private static final List<String> ALL_PERMISSIONS = List.of(
-            "生产计划", "工单管理", "班组", "物料", "排产",
+            "生产计划", "工单管理", "班组", "物料", "设备", "排产", "工艺管理", "工艺审批",
             "工序进度", "工单反馈", "异常上报", "AI 客服",
             "用户管理", "角色管理", "Coze 配置", "系统配置"
     );
 
     private static final List<String> DEFAULT_SUPERVISOR_PERMISSIONS = List.of(
-            "生产计划", "工单管理", "班组", "物料", "排产", "异常上报", "AI 客服"
+            "生产计划", "工单管理", "工单反馈", "班组", "物料", "设备", "排产", "异常上报", "AI 客服", "工艺管理"
+    );
+
+    private static final List<String> DEFAULT_PLANNER_PERMISSIONS = List.of(
+            "生产计划", "工单管理", "物料", "排产", "工艺管理", "AI 客服"
+    );
+
+    private static final List<String> DEFAULT_ENGINEER_PERMISSIONS = List.of(
+            "设备", "工单管理", "工序进度", "异常上报", "工艺管理", "AI 客服"
     );
 
     private static final List<String> DEFAULT_WORKER_PERMISSIONS = List.of(
@@ -39,6 +47,8 @@ public class RoleService {
         
         result.add(getRoleData("admin", "管理员"));
         result.add(getRoleData("supervisor", "车间主管"));
+        result.add(getRoleData("planner", "计划与物控"));
+        result.add(getRoleData("engineer", "设备与品质工程师"));
         result.add(getRoleData("worker", "普通员工"));
         
         return result;
@@ -56,6 +66,8 @@ public class RoleService {
         }
         return switch (roleKey) {
             case "supervisor" -> DEFAULT_SUPERVISOR_PERMISSIONS;
+            case "planner" -> DEFAULT_PLANNER_PERMISSIONS;
+            case "engineer" -> DEFAULT_ENGINEER_PERMISSIONS;
             case "worker" -> DEFAULT_WORKER_PERMISSIONS;
             default -> List.of();
         };

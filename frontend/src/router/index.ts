@@ -63,6 +63,18 @@ const router = createRouter({
           meta: { title: '班组管理', permission: '班组' }
         },
         {
+          path: 'devices',
+          name: 'devices',
+          component: () => import('@/views/Devices.vue'),
+          meta: { title: '设备管理', permission: '设备' }
+        },
+        {
+          path: 'devices/:id',
+          name: 'device-detail',
+          component: () => import('@/views/DeviceDetail.vue'),
+          meta: { title: '设备详情', permission: '设备' }
+        },
+        {
           path: 'exceptions',
           name: 'exceptions',
           component: () => import('@/views/Exceptions.vue'),
@@ -103,6 +115,22 @@ const router = createRouter({
           name: 'admin-coze',
           component: () => import('@/views/admin/Coze.vue'),
           meta: { title: '系统管理', permission: 'Coze 配置' }
+        },
+        {
+          path: 'process-management',
+          name: 'process-management',
+          component: () => import('@/views/ProcessManagement.vue'),
+          meta: { title: '工艺管理', permission: '工艺管理' }
+        },
+        {
+          path: 'process-management/:id',
+          name: 'process-route-detail',
+          component: () => import('@/views/ProcessRouteDetail.vue'),
+          meta: { title: '工艺详情', permission: '工艺管理' }
+        },
+        {
+          path: 'admin/routing',
+          redirect: '/process-management'
         },
         {
           path: 'profile',

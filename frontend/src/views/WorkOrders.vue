@@ -45,7 +45,7 @@
       <el-table v-loading="loading" :data="orders" stripe border highlight-current-row :header-cell-style="tableHeaderStyle">
         <el-table-column prop="code" label="工单号" min-width="150" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" style="font-weight: 600;" @click="openProgressDrawer(row)">{{ row.code }}</el-button>
+            <el-button link type="primary" style="font-weight: 600;" @click="goToDetail(row)">{{ row.code }}</el-button>
           </template>
         </el-table-column>
         <el-table-column prop="planCode" label="计划" min-width="140" align="center" />
@@ -111,10 +111,7 @@
         </el-form-item>
         <el-form-item label="当前工序" prop="processName">
           <el-select v-model="createForm.processName" class="full-width">
-            <el-option label="备料" value="备料" />
-            <el-option label="装配" value="装配" />
-            <el-option label="检测" value="检测" />
-            <el-option label="包装" value="包装" />
+            <el-option v-for="name in processOptions" :key="name" :label="name" :value="name" />
           </el-select>
         </el-form-item>
         <el-form-item label="优先级" prop="priority">
@@ -158,10 +155,7 @@
         </el-form-item>
         <el-form-item label="当前工序" prop="processName">
           <el-select v-model="editForm.processName" class="full-width">
-            <el-option label="备料" value="备料" />
-            <el-option label="装配" value="装配" />
-            <el-option label="检测" value="检测" />
-            <el-option label="包装" value="包装" />
+            <el-option v-for="name in processOptions" :key="name" :label="name" :value="name" />
           </el-select>
         </el-form-item>
         <el-form-item label="优先级" prop="priority">
@@ -276,6 +270,8 @@
           </div>
         </div>
 
+        <ProcessRecordTimeline :records="processRecords" />
+
         <div v-if="hasSchedulingInfo" class="scheduling-info-block scheduling-info-block--detail">
           <div class="scheduling-info-block__title">AI 排产信息</div>
           <div class="scheduling-info-grid">
@@ -311,11 +307,9 @@
           </el-form-item>
 
           <el-form-item label="当前工序" prop="currentProcess">
-            <el-input
-              v-model="progressForm.currentProcess"
-              placeholder="请输入当前所处的工序名称"
-              class="custom-input"
-            />
+            <el-select v-model="progressForm.currentProcess" filterable placeholder="选择当前工序" class="custom-input full-width">
+              <el-option v-for="name in progressProcessOptions" :key="name" :label="name" :value="name" />
+            </el-select>
           </el-form-item>
 
           <el-form-item label="备注说明">
@@ -370,6 +364,10 @@ import ProgressBar from '@/components/common/ProgressBar.vue'
 
 import StatusTag from '@/components/common/StatusTag.vue'
 
+import ProcessRecordTimeline, { type ProcessRecordItem } from '@/components/workorder/ProcessRecordTimeline.vue'
+
+import { getProcessOperationNames } from '@/api/processRoutes'
+
 import { useUserStore } from '@/stores/user'
 
 import { normalizePriority, priorityLabel } from '@/utils/labels'
@@ -400,6 +398,17 @@ const actionLoading = ref('')
 const orders = ref<WorkOrderRow[]>([])
 
 const teamOptions = ref<TeamOption[]>([])
+
+const processOptions = ref<string[]>(['备料', '装配', '检测', '包装'])
+
+const processRecords = ref<ProcessRecordItem[]>([])
+
+const progressProcessOptions = computed(() => {
+  if (processRecords.value.length) {
+    return processRecords.value.map((item) => item.processName)
+  }
+  return processOptions.value
+})
 
 const currentOrder = ref<WorkOrderRow | null>(null)
 
@@ -500,8 +509,27 @@ onMounted(() => {
     filters.keyword = String(route.query.keyword)
   }
   loadTeamOptions()
+  loadProcessOptions()
   loadOrders()
 })
+
+async function loadProcessOptions() {
+  try {
+    const names = await getProcessOperationNames()
+    if (names.length) {
+      processOptions.value = names
+      if (!processOptions.value.includes(createForm.processName)) {
+        createForm.processName = processOptions.value[0]
+      }
+    }
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+function goToDetail(row: WorkOrderRow) {
+  router.push({ name: 'work-order-detail', params: { id: row.id } })
+}
 
 async function loadOrders() {
   loading.value = true
@@ -687,6 +715,7 @@ async function claimOrder(row: WorkOrderRow) { actionLoading.value = `claim-${ro
 async function openProgressDrawer(row: WorkOrderRow) {
   currentOrder.value = row
   resetSchedulingInfo()
+  processRecords.value = []
   Object.assign(progressForm, {
     progress: row.progress,
     currentProcess: row.currentProcess,
@@ -697,6 +726,7 @@ async function openProgressDrawer(row: WorkOrderRow) {
     const api = await import('@/api/workOrders')
     const detail = (await api.getWorkOrderDetail(row.id)) as unknown as Record<string, unknown>
     loadSchedulingInfo(detail)
+    processRecords.value = (detail.processRecords as ProcessRecordItem[] | undefined) ?? []
   } catch (error) {
     console.error(error)
   }

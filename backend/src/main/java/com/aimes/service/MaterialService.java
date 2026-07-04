@@ -61,6 +61,20 @@ public class MaterialService {
                 .toList();
     }
 
+    public List<Map<String, Object>> options() {
+        return matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
+                        .orderByAsc(MatMaterial::getMaterialCode))
+                .stream()
+                .map(m -> Map.<String, Object>of(
+                        "id", m.getId(),
+                        "materialCode", m.getMaterialCode(),
+                        "materialName", m.getMaterialName(),
+                        "unit", m.getUnit() == null ? "" : m.getUnit(),
+                        "stockQty", m.getStockQty()
+                ))
+                .toList();
+    }
+
     @Transactional
     public Map<String, Object> create(MaterialCreateRequest request) {
         String code = StringUtils.hasText(request.getMaterialCode())

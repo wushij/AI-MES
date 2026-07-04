@@ -113,14 +113,10 @@ import { Setting } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import AdminSubNav from '@/components/admin/AdminSubNav.vue'
 import { getRoles, updateRolePermissions, type RoleItem } from '@/api/roles'
+import { ALL_PERMISSIONS } from '@/utils/permissions'
 
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600' }
-
-const allAvailablePermissions = [
-  '生产计划', '工单管理', '班组', '物料', '排产',
-  '工序进度', '工单反馈', '异常上报', 'AI 客服',
-  '用户管理', '角色管理', 'Coze 配置', '系统配置'
-]
+const allAvailablePermissions = ALL_PERMISSIONS
 
 const rolesList = ref<RoleItem[]>([])
 const dialogVisible = ref(false)

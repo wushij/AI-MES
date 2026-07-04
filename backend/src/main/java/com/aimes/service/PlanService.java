@@ -26,8 +26,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PlanService {
 
-    private static final List<String> DEFAULT_PROCESSES = List.of("备料", "装配", "检测", "包装");
-
     private final ProdPlanMapper prodPlanMapper;
     private final ProdWorkOrderMapper prodWorkOrderMapper;
     private final ProdProcessRecordMapper prodProcessRecordMapper;
@@ -36,6 +34,7 @@ public class PlanService {
     private final SysNotificationService sysNotificationService;
     private final WorkOrderNoService workOrderNoService;
     private final ReferentialIntegrityService referentialIntegrityService;
+    private final ProcessRouteService processRouteService;
 
     public Map<String, Object> list(long current, long size, String keyword, String status) {
         LambdaQueryWrapper<ProdPlan> wrapper = new LambdaQueryWrapper<ProdPlan>()
@@ -120,7 +119,7 @@ public class PlanService {
         order.setOrderNo(workOrderNoService.nextOrderNo());
         order.setPlanId(plan.getId());
         order.setProductName(plan.getProductName());
-        order.setProcessName(DEFAULT_PROCESSES.get(0));
+        processRouteService.applyRoutingToWorkOrder(order, plan.getProductName());
         order.setProgress(0);
         order.setStatus("pending");
         order.setPriority(2);
@@ -128,14 +127,7 @@ public class PlanService {
         order.setRemark("由计划 " + plan.getPlanNo() + " 自动生成");
         prodWorkOrderMapper.insert(order);
 
-        for (int i = 0; i < DEFAULT_PROCESSES.size(); i++) {
-            ProdProcessRecord record = new ProdProcessRecord();
-            record.setWorkOrderId(order.getId());
-            record.setSeqNo(i + 1);
-            record.setProcessName(DEFAULT_PROCESSES.get(i));
-            record.setStatus("waiting");
-            prodProcessRecordMapper.insert(record);
-        }
+        processRouteService.initProcessRecords(order.getId(), plan.getProductName());
 
         return Map.of("plan", toView(plan), "generatedWorkOrder", order);
     }

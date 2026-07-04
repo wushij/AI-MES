@@ -1,6 +1,6 @@
 package com.aimes.controller;
 
-import cn.dev33.satoken.annotation.SaCheckRole;
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aimes.common.Result;
 import com.aimes.service.RoleService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,7 +19,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/roles")
 @RequiredArgsConstructor
-@SaCheckRole("admin")
+@SaCheckPermission("角色管理")
 public class RoleController {
 
     private final RoleService roleService;

@@ -41,8 +41,6 @@ import java.util.Objects;
 @Service
 public class WorkOrderService {
 
-    private static final List<String> DEFAULT_PROCESSES = List.of("备料", "装配", "检测", "包装");
-
     private final ProdWorkOrderMapper prodWorkOrderMapper;
     private final ProdPlanMapper prodPlanMapper;
     private final ProdTeamMapper prodTeamMapper;
@@ -52,6 +50,7 @@ public class WorkOrderService {
     private final WorkOrderNoService workOrderNoService;
     private final SysNotificationService sysNotificationService;
     private final SysUserMapper sysUserMapper;
+    private final ProcessRouteService processRouteService;
 
     public WorkOrderService(ProdWorkOrderMapper prodWorkOrderMapper,
                             ProdPlanMapper prodPlanMapper,
@@ -61,7 +60,8 @@ public class WorkOrderService {
                             AuthService authService,
                             WorkOrderNoService workOrderNoService,
                             SysNotificationService sysNotificationService,
-                            SysUserMapper sysUserMapper) {
+                            SysUserMapper sysUserMapper,
+                            ProcessRouteService processRouteService) {
         this.prodWorkOrderMapper = prodWorkOrderMapper;
         this.prodPlanMapper = prodPlanMapper;
         this.prodTeamMapper = prodTeamMapper;
@@ -71,6 +71,7 @@ public class WorkOrderService {
         this.workOrderNoService = workOrderNoService;
         this.sysNotificationService = sysNotificationService;
         this.sysUserMapper = sysUserMapper;
+        this.processRouteService = processRouteService;
     }
 
     public Map<String, Object> list(long current, long size, String keyword, String status, Long teamId) {
@@ -96,6 +97,9 @@ public class WorkOrderService {
         detail.put("processRecords", prodProcessRecordMapper.selectList(new LambdaQueryWrapper<ProdProcessRecord>()
                 .eq(ProdProcessRecord::getWorkOrderId, id)
                 .orderByAsc(ProdProcessRecord::getSeqNo)));
+        if (order.getRoutingId() != null) {
+            detail.put("routingContext", processRouteService.getExecutionContext(id));
+        }
         detail.put("exceptions", excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
                 .eq(ExcEvent::getWorkOrderId, id)
                 .orderByDesc(ExcEvent::getOccurTime)));
@@ -109,14 +113,15 @@ public class WorkOrderService {
         order.setPlanId(request.getPlanId());
         order.setProductName(request.getProductName());
         order.setTeamId(request.getTeamId());
-        order.setProcessName(StringUtils.hasText(request.getProcessName()) ? request.getProcessName() : DEFAULT_PROCESSES.get(0));
+        order.setProcessName(defaultFirstProcess(request.getProductName()));
+        processRouteService.applyRoutingToWorkOrder(order, request.getProductName());
         order.setProgress(request.getProgress() == null ? 0 : request.getProgress());
         order.setStatus(StringUtils.hasText(request.getStatus()) ? request.getStatus() : (request.getTeamId() == null ? "pending" : "assigned"));
         order.setPriority(request.getPriority() == null ? 2 : request.getPriority());
         order.setDeadline(request.getDeadline());
         order.setRemark(request.getRemark());
         prodWorkOrderMapper.insert(order);
-        initProcessRecords(order.getId());
+        initProcessRecords(order.getId(), order.getProductName());
         return detail(order.getId());
     }
 
@@ -245,6 +250,10 @@ public class WorkOrderService {
                 .eq(ProdProcessRecord::getProcessName, request.getProcessName())
                 .last("limit 1"));
         if (currentRecord != null) {
+            if (request.getDeviceId() != null) {
+                processRouteService.validateDeviceForOperation(currentRecord.getOperationId(), request.getDeviceId());
+                currentRecord.setDeviceId(request.getDeviceId());
+            }
             if (currentRecord.getStartTime() == null) {
                 currentRecord.setStartTime(LocalDateTime.now());
             }
@@ -549,15 +558,13 @@ public class WorkOrderService {
         return 2;
     }
 
-    private void initProcessRecords(Long workOrderId) {
-        for (int i = 0; i < DEFAULT_PROCESSES.size(); i++) {
-            ProdProcessRecord record = new ProdProcessRecord();
-            record.setWorkOrderId(workOrderId);
-            record.setSeqNo(i + 1);
-            record.setProcessName(DEFAULT_PROCESSES.get(i));
-            record.setStatus("waiting");
-            prodProcessRecordMapper.insert(record);
-        }
+    private void initProcessRecords(Long workOrderId, String productName) {
+        processRouteService.initProcessRecords(workOrderId, productName);
+    }
+
+    private String defaultFirstProcess(String productName) {
+        var operations = processRouteService.resolveRouting(productName).operations();
+        return operations.isEmpty() ? "备料" : operations.get(0).getOperationName();
     }
 
     private Map<String, Object> toView(ProdWorkOrder order) {
@@ -573,6 +580,8 @@ public class WorkOrderService {
         view.put("planId", order.getPlanId());
         view.put("planNo", plan == null ? null : plan.getPlanNo());
         view.put("productName", order.getProductName());
+        view.put("routingId", order.getRoutingId());
+        view.put("routeVersion", order.getRouteVersion());
         view.put("teamId", order.getTeamId());
         view.put("teamName", team == null ? null : team.getTeamName());
         view.put("processName", order.getProcessName());
