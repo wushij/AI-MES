@@ -6,7 +6,9 @@ export function getWorkOrders(params?: ApiListParams) {
 }
 
 export function createWorkOrder(payload: {
+  productId?: number | string
   productName: string
+  orderQty?: number
   processName?: string
   priority?: number
   deadline?: string
@@ -36,7 +38,9 @@ export function updateWorkOrder(
   id: number | string,
   payload: {
     planId?: number | string
+    productId?: number | string
     productName?: string
+    orderQty?: number
     teamId?: number | string
     processName?: string
     priority?: number

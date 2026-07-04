@@ -106,8 +106,11 @@
 
     <el-dialog v-model="createDialogVisible" title="新建工单" width="480px">
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="88px">
-        <el-form-item label="产品名称" prop="productName">
-          <el-input v-model="createForm.productName" placeholder="如：精密组件C" />
+        <el-form-item label="产品" prop="productId">
+          <ProductSelect v-model="createForm.productId" @change="onCreateProductChange" />
+        </el-form-item>
+        <el-form-item label="工单数量" prop="orderQty">
+          <el-input-number v-model="createForm.orderQty" :min="1" class="full-width" />
         </el-form-item>
         <el-form-item label="当前工序" prop="processName">
           <el-select v-model="createForm.processName" class="full-width">
@@ -150,8 +153,11 @@
         <el-form-item label="工单号">
           <el-input :model-value="editingCode" disabled />
         </el-form-item>
-        <el-form-item label="产品名称" prop="productName">
-          <el-input v-model="editForm.productName" placeholder="如：精密组件C" />
+        <el-form-item label="产品" prop="productId">
+          <ProductSelect v-model="editForm.productId" @change="onEditProductChange" />
+        </el-form-item>
+        <el-form-item label="工单数量" prop="orderQty">
+          <el-input-number v-model="editForm.orderQty" :min="1" class="full-width" />
         </el-form-item>
         <el-form-item label="当前工序" prop="processName">
           <el-select v-model="editForm.processName" class="full-width">
@@ -363,6 +369,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 
 import StatusTag from '@/components/common/StatusTag.vue'
+import ProductSelect from '@/components/common/ProductSelect.vue'
 
 import ProcessRecordTimeline, { type ProcessRecordItem } from '@/components/workorder/ProcessRecordTimeline.vue'
 
@@ -445,14 +452,18 @@ const pagination = reactive({ page: 1, size: 10, total: 0 })
 const assignForm = reactive<{ teamId: number | undefined; priority: number }>({ teamId: undefined, priority: 2 })
 
 const createForm = reactive<{
+  productId: number | string | undefined
   productName: string
+  orderQty: number
   processName: string
   priority: number
   deadline: string
   teamId: number | undefined
   remark: string
 }>({
+  productId: undefined,
   productName: '',
+  orderQty: 1,
   processName: '备料',
   priority: 2,
   deadline: '',
@@ -461,20 +472,34 @@ const createForm = reactive<{
 })
 
 const editForm = reactive<{
+  productId: number | string | undefined
   productName: string
+  orderQty: number
   processName: string
   priority: number
   deadline: string
   teamId: number | undefined
   remark: string
 }>({
+  productId: undefined,
   productName: '',
+  orderQty: 1,
   processName: '备料',
   priority: 2,
   deadline: '',
   teamId: undefined,
   remark: ''
 })
+
+function onCreateProductChange(payload: { productId?: number | string; productName: string }) {
+  createForm.productId = payload.productId
+  createForm.productName = payload.productName
+}
+
+function onEditProductChange(payload: { productId?: number | string; productName: string }) {
+  editForm.productId = payload.productId
+  editForm.productName = payload.productName
+}
 
 const schedulingInfo = reactive({
   scheduledStartTime: '',
@@ -495,7 +520,8 @@ const progressForm = reactive({ progress: 0, currentProcess: '', remark: '' })
 const assignRules: FormRules = { teamId: [{ required: true, message: '请选择班组', trigger: 'change' }], priority: [{ required: true, message: '请选择优先级', trigger: 'change' }] }
 
 const createRules: FormRules = {
-  productName: [{ required: true, message: '请输入产品名称', trigger: 'blur' }],
+  productId: [{ required: true, message: '请选择产品', trigger: 'change' }],
+  orderQty: [{ required: true, message: '请输入数量', trigger: 'change' }],
   processName: [{ required: true, message: '请选择工序', trigger: 'change' }],
   priority: [{ required: true, message: '请选择优先级', trigger: 'change' }]
 }
@@ -561,7 +587,9 @@ async function loadTeamOptions() { try { const { getTeams } = await import('@/ap
 
 function openCreateDialog() {
   Object.assign(createForm, {
+    productId: undefined,
     productName: '',
+    orderQty: 1,
     processName: '备料',
     priority: 2,
     deadline: '',
@@ -578,7 +606,9 @@ async function submitCreate() {
   try {
     const api = await import('@/api/workOrders')
     const payload: Parameters<typeof api.createWorkOrder>[0] = {
+      productId: createForm.productId,
       productName: createForm.productName.trim(),
+      orderQty: createForm.orderQty,
       processName: createForm.processName,
       priority: createForm.priority,
       remark: createForm.remark.trim() || undefined
@@ -615,7 +645,9 @@ async function openEditDialog(row: WorkOrderRow) {
     const api = await import('@/api/workOrders')
     const detail = (await api.getWorkOrderDetail(row.id)) as unknown as Record<string, unknown>
     Object.assign(editForm, {
+      productId: detail.productId != null ? detail.productId as number | string : undefined,
       productName: String(detail.productName ?? row.productName),
+      orderQty: Number(detail.orderQty ?? 1),
       processName: String(detail.processName ?? row.currentProcess),
       priority: normalizePriority(detail.priority as string | number | null | undefined ?? row.priority),
       deadline: formatDeadlineForPicker(String(detail.deadline ?? row.dueDate ?? '')),
@@ -626,7 +658,9 @@ async function openEditDialog(row: WorkOrderRow) {
   } catch (error) {
     console.error(error)
     Object.assign(editForm, {
+      productId: undefined,
       productName: row.productName,
+      orderQty: 1,
       processName: row.currentProcess,
       priority: normalizePriority(row.priority),
       deadline: formatDeadlineForPicker(row.dueDate),
@@ -643,7 +677,9 @@ async function submitEdit() {
   try {
     const api = await import('@/api/workOrders')
     const payload: Parameters<typeof api.updateWorkOrder>[1] = {
+      productId: editForm.productId,
       productName: editForm.productName.trim(),
+      orderQty: editForm.orderQty,
       processName: editForm.processName,
       priority: editForm.priority,
       remark: editForm.remark.trim() || undefined

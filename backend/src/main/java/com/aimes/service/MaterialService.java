@@ -3,7 +3,9 @@ package com.aimes.service;
 import com.aimes.common.BusinessException;
 import com.aimes.dto.Requests.MaterialCreateRequest;
 import com.aimes.dto.Requests.MaterialUpdateRequest;
+import com.aimes.entity.InvTransaction;
 import com.aimes.entity.MatMaterial;
+import com.aimes.mapper.InvTransactionMapper;
 import com.aimes.mapper.MatMaterialMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
@@ -26,8 +28,10 @@ public class MaterialService {
     private static final Pattern MATERIAL_CODE_PATTERN = Pattern.compile("^MAT-(\\d+)$");
 
     private final MatMaterialMapper matMaterialMapper;
+    private final InvTransactionMapper invTransactionMapper;
     private final com.aimes.mapper.SysUserMapper sysUserMapper;
     private final SysNotificationService sysNotificationService;
+    private final AuthService authService;
 
     public Map<String, Object> list(String keyword, String status) {
         List<Map<String, Object>> records = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
@@ -101,6 +105,10 @@ public class MaterialService {
         material.setCreatedTime(LocalDateTime.now());
         material.setUpdatedTime(LocalDateTime.now());
         matMaterialMapper.insert(material);
+        if (stockQty.compareTo(BigDecimal.ZERO) > 0) {
+            recordTransaction(material.getId(), "in", stockQty, BigDecimal.ZERO, stockQty,
+                    "material", material.getId(), "期初入库");
+        }
         return toView(material);
     }
 
@@ -112,11 +120,20 @@ public class MaterialService {
         }
 
         BigDecimal stockQty = material.getStockQty();
+        BigDecimal beforeQty = stockQty;
+        String txnType = null;
+        BigDecimal txnQty = null;
+
         if (request.getStockQty() != null) {
             stockQty = BigDecimal.valueOf(request.getStockQty());
+            txnType = "adjust";
+            txnQty = stockQty.subtract(beforeQty).abs();
         }
         if (request.getInboundQty() != null) {
-            stockQty = stockQty.add(BigDecimal.valueOf(request.getInboundQty()));
+            BigDecimal delta = BigDecimal.valueOf(request.getInboundQty());
+            stockQty = stockQty.add(delta);
+            txnType = delta.compareTo(BigDecimal.ZERO) >= 0 ? "in" : "out";
+            txnQty = delta.abs();
         }
         material.setStockQty(stockQty);
         
@@ -128,6 +145,11 @@ public class MaterialService {
             material.setRemark(request.getRemark());
         }
         matMaterialMapper.updateById(material);
+
+        if (txnType != null && txnQty != null && txnQty.compareTo(BigDecimal.ZERO) > 0) {
+            recordTransaction(material.getId(), txnType, txnQty, beforeQty, stockQty,
+                    "manual", material.getId(), request.getRemark());
+        }
 
         if (isWarning && !wasWarning) {
             BigDecimal gap = material.getSafetyStock().subtract(stockQty);
@@ -154,6 +176,84 @@ public class MaterialService {
             throw new BusinessException("物料不存在");
         }
         matMaterialMapper.deleteById(id);
+    }
+
+    /**
+     * 工单完工按 BOM 扣减库存并写 pick 流水。
+     */
+    @Transactional
+    public void pickForWorkOrder(Long workOrderId, Long productId, int orderQty, List<Map<String, Object>> demandItems) {
+        if (workOrderId == null || demandItems == null || demandItems.isEmpty()) {
+            return;
+        }
+        for (Map<String, Object> item : demandItems) {
+            Long materialId = ((Number) item.get("materialId")).longValue();
+            BigDecimal requiredQty = new BigDecimal(item.get("requiredQty").toString());
+            if (requiredQty.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            MatMaterial material = matMaterialMapper.selectById(materialId);
+            if (material == null) {
+                continue;
+            }
+            BigDecimal beforeQty = material.getStockQty();
+            BigDecimal afterQty = beforeQty.subtract(requiredQty);
+            if (afterQty.compareTo(BigDecimal.ZERO) < 0) {
+                throw new BusinessException("物料「" + material.getMaterialName() + "」库存不足，无法完工领料");
+            }
+            material.setStockQty(afterQty);
+            material.setAlertStatus(afterQty.compareTo(material.getSafetyStock()) < 0 ? "warning" : "normal");
+            matMaterialMapper.updateById(material);
+            recordTransaction(materialId, "pick", requiredQty, beforeQty, afterQty,
+                    "work_order", workOrderId, "工单完工按BOM领料");
+        }
+    }
+
+    public List<Map<String, Object>> listTransactions(Long materialId) {
+        MatMaterial material = matMaterialMapper.selectById(materialId);
+        if (material == null) {
+            throw new BusinessException("物料不存在");
+        }
+        return invTransactionMapper.selectList(new LambdaQueryWrapper<InvTransaction>()
+                        .eq(InvTransaction::getMaterialId, materialId)
+                        .orderByDesc(InvTransaction::getCreatedTime)
+                        .orderByDesc(InvTransaction::getId))
+                .stream()
+                .map(this::transactionToView)
+                .toList();
+    }
+
+    private void recordTransaction(Long materialId, String txnType, BigDecimal qty,
+                                   BigDecimal beforeQty, BigDecimal afterQty,
+                                   String refType, Long refId, String remark) {
+        InvTransaction txn = new InvTransaction();
+        txn.setMaterialId(materialId);
+        txn.setTxnType(txnType);
+        txn.setQty(qty);
+        txn.setBeforeQty(beforeQty);
+        txn.setAfterQty(afterQty);
+        txn.setRefType(refType);
+        txn.setRefId(refId);
+        txn.setOperatorId(authService.currentUser().getId());
+        txn.setRemark(remark);
+        txn.setCreatedTime(LocalDateTime.now());
+        invTransactionMapper.insert(txn);
+    }
+
+    private Map<String, Object> transactionToView(InvTransaction txn) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", txn.getId());
+        row.put("materialId", txn.getMaterialId());
+        row.put("txnType", txn.getTxnType());
+        row.put("qty", txn.getQty());
+        row.put("beforeQty", txn.getBeforeQty());
+        row.put("afterQty", txn.getAfterQty());
+        row.put("refType", txn.getRefType());
+        row.put("refId", txn.getRefId());
+        row.put("operatorId", txn.getOperatorId());
+        row.put("remark", txn.getRemark());
+        row.put("createdTime", txn.getCreatedTime());
+        return row;
     }
 
     private Map<String, Object> toView(MatMaterial material) {

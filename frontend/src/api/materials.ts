@@ -28,6 +28,24 @@ export function getMaterialAlerts() {
   return request.get<Material[]>('/materials/alerts').then((res) => res.data)
 }
 
+export interface MaterialTransaction {
+  id: number | string
+  materialId: number | string
+  txnType: string
+  qty: number
+  beforeQty: number
+  afterQty: number
+  refType?: string
+  refId?: number | string
+  operatorId?: number | string
+  remark?: string
+  createdTime: string
+}
+
+export function getMaterialTransactions(id: number | string) {
+  return request.get<MaterialTransaction[]>(`/materials/${id}/transactions`).then((res) => res.data)
+}
+
 export function getMaterialOptions() {
   return request.get<Array<{ id: number | string; materialCode: string; materialName: string; unit: string; stockQty: number }>>('/materials/options').then((res) => res.data)
 }

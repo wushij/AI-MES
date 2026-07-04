@@ -1,6 +1,6 @@
 # AI-MES 系统模块全面分析报告
 
-> 生成日期：2026-07-04（P0 修复：2026-07-04 更新）  
+> 生成日期：2026-07-04（P0–P2 实施：2026-07-04 更新）  
 > 分析范围：后端、前端、数据库、文档、部署与 AI 集成  
 > 分析方式：多子代理并行扫描 + 主报告汇总
 
@@ -27,12 +27,12 @@
 | 生产执行闭环 | ★★★★☆ | 计划→工单→工序→完工链路完整 |
 | 异常与预警 | ★★★★☆ | 异常闭环、缺料预警、WebSocket 通知 |
 | AI 能力 | ★★★★★ | Coze 对话、流式输出、排产工作流、Mock 降级 |
-| 主数据管理 | ★★☆☆☆ | 工艺路线、设备已入库；产品/BOM 仍缺 |
-| 库存与供应链 | ★★☆☆☆ | 仅安全库存预警，无事务台账 |
-| 质量管理 | ★☆☆☆☆ | 异常类型含「质量」，无检验体系 |
-| 设备管理 | ★★★★☆ | 分类/台账/详情/履历，与异常/驾驶舱/排产数据互通 |
-| 企业级特性 | ★★☆☆☆ | 无审计日志、无多工厂、无 ERP 对接；**环境变量配置已支持** |
-| **综合（相对完整 MES）** | **约 35%–45%** | 执行闭环与 AI 强，主数据仍偏薄 |
+| 主数据管理 | ★★★★☆ | 产品主数据、单层 BOM、工艺路线、设备已入库 |
+| 库存与供应链 | ★★★☆☆ | 安全库存预警 + 库存流水台账 |
+| 质量管理 | ★★★☆☆ | 检验计划/记录、与 `need_check` 联动、不合格走异常 |
+| 设备管理 | ★★★★☆ | 分类树/台账/详情/履历/运行记录，与异常/驾驶舱/排产互通 |
+| 企业级特性 | ★★★☆☆ | 操作审计日志、环境变量配置；无多工厂、无 ERP 对接 |
+| **综合（相对完整 MES）** | **约 55%–65%** | 执行闭环与 AI 强，主数据与质量已具雏形 |
 
 ---
 
@@ -50,13 +50,13 @@
                            │ HTTP /api  +  WebSocket /ws
 ┌──────────────────────────▼──────────────────────────────────┐
 │              Spring Boot 3.3.2（Java 17）:8080               │
-│   11 Controllers │ 16 Services │ 11 MyBatis-Plus Mappers     │
+│   15 Controllers │ 22+ Services │ MyBatis-Plus Mappers     │
 │   Sa-Token 认证 │ Knife4j API 文档 │ WebSocket 通知推送       │
 └──────┬───────────────────────────────┬──────────────────────┘
        │                               │
 ┌──────▼──────┐                 ┌──────▼──────┐
 │  MySQL 8    │                 │   Redis     │
-│  11 张表    │                 │ 会话/锁登   │
+│  28 张表    │                 │ 会话/锁登   │
 └─────────────┘                 └─────────────┘
                                        │
                               ┌────────▼────────┐
@@ -72,7 +72,8 @@
 |------|------|
 | `backend/` | Spring Boot 后端（~71 个 Java 源文件） |
 | `frontend/` | Vue 3 前端（~86 个源文件，15 个页面） |
-| `sql/init.sql` | 唯一数据库初始化脚本（~457 行，11 张表） |
+| `sql/init.sql` | 全量数据库初始化脚本（~884 行，28 张表） |
+| `sql/migrations/` | 增量迁移脚本（002 审计日志、003 P2 主数据等） |
 | `docs/` | 设计文档、提示词、知识库（部分 gitignore） |
 | `deploy/nginx.conf` | 生产 Nginx 反向代理示例 |
 | `scripts/` | PowerShell 后端启动脚本 |
@@ -97,8 +98,8 @@
 | 能力 | 状态 |
 |------|------|
 | CI/CD（GitHub Actions 等） | ❌ 未配置 |
-| 数据库迁移（Flyway/Liquibase） | ❌ 仅手动 `init.sql` |
-| 自动化测试 | ❌ `src/test` 为空 |
+| 数据库迁移（Flyway/Liquibase） | ⚠️ `sql/migrations/` 手工脚本，未接入 Flyway |
+| 自动化测试 | ⚠️ 核心 Service 单元测试 3 个（工单/异常/工艺审批） |
 
 ---
 
@@ -109,18 +110,22 @@
 | 模块 | Controller | Service | Entity | API 数 | 成熟度 |
 |------|------------|---------|--------|--------|--------|
 | 认证与账户 | `AuthController` | `AuthService` | `SysUser` | 7 | ✅ 完整 |
-| 生产计划 | `PlanController` | `PlanService` | `ProdPlan` | 6 | ✅ 完整 |
+| 生产计划 | `PlanController` | `PlanService` | `ProdPlan` | 7 | ✅ 完整（含下发预览/拆分） |
 | 工单执行 | `WorkOrderController` | `WorkOrderService` | `ProdWorkOrder`, `ProdProcessRecord` | 10 | ✅ 完整 |
 | 班组管理 | `TeamController` | `TeamService` | `ProdTeam` | 5 | ✅ 完整 |
-| 物料预警 | `MaterialController` | `MaterialService` | `MatMaterial` | 5 | ⚠️ 基础 |
+| 物料与库存 | `MaterialController` | `MaterialService` | `MatMaterial`, `InvTransaction` | 6+ | ✅ 基础（含流水） |
+| 产品主数据 | `ProductController` | `ProductService` | `MdmProduct`, `MdmBom`, `MdmBomItem` | 8 | ✅ 基础（含 BOM） |
+| 质量管理 | `QualityController` | `QmsInspectionService` | `QmsInspectionPlan`, `QmsInspectionRecord` | 3+ | ⚠️ 最小可行 |
 | 异常管理 | `ExceptionController` | `ExceptionService` | `ExcEvent` | 5 | ✅ 完整 |
+| 设备管理 | `DeviceController` | `DeviceService` | `DevDevice`, `DevDeviceCategory`, `DevDeviceHistory` | 10+ | ✅ V1 完整 |
+| 工艺管理 | `ProcessRouteController` | `ProcessRouteService` | `MdmRouting`, `MdmOperation` 等 | 18+ | ✅ 完整 |
 | 驾驶舱 | `DashboardController` | `DashboardService` | —（聚合查询） | 4 | ⚠️ 基础 |
 | AI / Coze | `CozeController` | `CozeService`（~2150 行） | `AiChatLog`, `SysCozeConfig` | 13 | ✅ 完整 |
 | 用户管理 | `UserAdminController` | `UserAdminService` | `SysUser` | 7 | ✅ 完整 |
 | 角色权限 | `RoleController` | `RoleService` | `SysRolePermission` | 2 | ✅ 完整 |
 | 消息通知 | `SysNotificationController` | `SysNotificationService` | `SysNotification` | 5 + WS | ✅ 完整 |
 
-**支撑服务**：`WorkOrderNoService`（工单编号）、`CozeConfigService`（配置合并）、`ReferentialIntegrityService`（删除保护）、`CaptchaService`、`LoginProtectionService`。
+**支撑服务**：`WorkOrderNoService`、`CozeConfigService`、`ReferentialIntegrityService`、`CaptchaService`、`LoginProtectionService`、`SysOperationLogService`（审计）、`FileStorageService`（SOP 存储）。
 
 ### 3.2 前端模块（按路由）
 
@@ -128,14 +133,20 @@
 |------|------|------|----------|------|
 | `/login` | `Login.vue` | 公开 | `/api/auth` | ✅ 完整 |
 | `/dashboard` | `Dashboard.vue` | 全部 | `/api/dashboard` | ✅ 完整 |
-| `/plans` | `Plans.vue` | 生产计划 | `/api/plans` | ✅ 完整 |
+| `/plans` | `Plans.vue` | 生产计划 | `/api/plans` | ✅ 完整（含下发预览） |
+| `/plans/:id` | `PlanDetail.vue` | 生产计划 | `/api/plans/{id}` | ✅ 完整 |
 | `/work-orders` | `WorkOrders.vue` | 工单管理/反馈 | `/api/work-orders` | ✅ 完整 |
-| `/work-orders/:id` | `WorkOrderDetail.vue` | 同上 | 同上 | ⚠️ **静态 Stub** |
-| `/process` | `Process.vue` | 工序进度 | `/api/work-orders/process-board` | ✅ 完整 |
+| `/work-orders/:id` | `WorkOrderDetail.vue` | 同上 | 同上 | ✅ 完整（含排产字段） |
+| `/process` | `Process.vue` | 工序进度 | `/api/work-orders/process-board` | ✅ 完整（质检/参数/SOP） |
+| `/process-management` | `ProcessManagement.vue` | 工艺管理 | `/api/process-routes` | ✅ 完整 |
+| `/process-management/:id` | `ProcessRouteDetail.vue` | 工艺管理 | 同上 | ✅ 完整 |
 | `/teams` | `Teams.vue` | 班组 | `/api/teams` | ✅ 完整 |
+| `/devices` | `Devices.vue` | 设备 | `/api/devices` | ✅ 完整 |
+| `/devices/:id` | `DeviceDetail.vue` | 设备 | 同上 | ✅ 完整 |
 | `/exceptions` | `Exceptions.vue` | 异常上报 | `/api/exceptions` | ✅ 完整 |
-| `/materials` | `Materials.vue` | 物料 | `/api/materials` | ✅ 完整 |
-| `/ai-chat` | `AiChat.vue` | AI 客服 | `/api/coze/chat` | ✅ 完整（空「新对话」置顶） |
+| `/products` | `Products.vue` | 产品管理 | `/api/products` | ✅ 基础（含 BOM） |
+| `/materials` | `Materials.vue` | 物料 | `/api/materials` | ✅ 完整（含流水 Tab） |
+| `/ai-chat` | `AiChat.vue` | AI 客服 | `/api/coze/chat` | ✅ 完整 |
 | `/ai-scheduling` | `AiScheduling.vue` | 排产 | `/api/coze/scheduling` | ✅ 完整 |
 | `/admin/users` | `admin/Users.vue` | 用户管理 | `/api/admin/users` | ✅ 完整 |
 | `/admin/roles` | `admin/Roles.vue` | 角色管理 | `/api/admin/roles` | ✅ 完整 |
@@ -143,30 +154,39 @@
 | `/profile` | `Profile.vue` | 个人中心 | `/api/auth/profile` | ✅ 完整 |
 | 全局悬浮 | `AiFloatBtn` + `AiChatPanel` | AI 客服 | Coze SSE | ✅ 完整 |
 
-**前端架构特点**：Fat Views（业务逻辑集中在 `.vue`）、6 个 Pinia Store、14 个 API 模块与后端 1:1 对应、三层权限控制（路由 → 菜单 → 按钮）。
+**前端架构特点**：Fat Views、6 个 Pinia Store、16+ 个 API 模块与后端对应、三层权限控制（路由 → 菜单 → 按钮）。
 
-### 3.3 数据库实体（11 张表）
+### 3.3 数据库实体（28 张表）
 
 | 表名 | 实体 | 业务含义 |
 |------|------|----------|
 | `prod_team` | `ProdTeam` | 班组、产线 |
-| `sys_user` | `SysUser` | 用户（admin/supervisor/worker） |
-| `prod_plan` | `ProdPlan` | 生产计划 |
+| `sys_user` | `SysUser` | 用户（5 种角色） |
+| `prod_plan` | `ProdPlan` | 生产计划（含 `product_id`） |
 | `prod_work_order` | `ProdWorkOrder` | 工单（含 AI 排产字段） |
-| `prod_process_record` | `ProdProcessRecord` | 工单工序记录 |
+| `prod_process_record` | `ProdProcessRecord` | 工单工序记录（含 `device_id`） |
 | `exc_event` | `ExcEvent` | 异常事件 |
 | `mat_material` | `MatMaterial` | 物料库存 |
-| `ai_chat_log` | `AiChatLog` | AI 对话历史 |
-| `sys_coze_config` | `SysCozeConfig` | Coze 配置（单例） |
-| `sys_role_permission` | `SysRolePermission` | 角色菜单权限 |
-| `sys_notification` | `SysNotification` | 系统通知 |
-| `dev_device` | `DevDevice` | 设备台账（含分类、品牌、位置、负责人等） |
+| `mdm_product` | `MdmProduct` | 产品主数据 |
+| `mdm_bom` / `mdm_bom_item` | `MdmBom`, `MdmBomItem` | 单层 BOM |
+| `inv_transaction` | `InvTransaction` | 库存流水 |
+| `qms_inspection_plan` | `QmsInspectionPlan` | 检验项（关联工序） |
+| `qms_inspection_record` | `QmsInspectionRecord` | 检验记录 |
+| `dev_device` | `DevDevice` | 设备台账 |
 | `dev_device_category` | `DevDeviceCategory` | 设备分类树 |
-| `dev_device_history` | `DevDeviceHistory` | 设备履历（新建/状态/异常联动） |
-| `mdm_routing` | `MdmRouting` | 工艺路线（版本、产品绑定、状态） |
-| `mdm_operation` | `MdmOperation` | 工艺工序（编号、工时、报工/质检/扫码） |
+| `dev_device_history` | `DevDeviceHistory` | 设备履历 |
+| `mdm_routing` | `MdmRouting` | 工艺路线 |
+| `mdm_operation` | `MdmOperation` | 工艺工序 |
 | `mdm_operation_param` | `MdmOperationParam` | 工艺参数 |
-| `mdm_routing_history` | `MdmRoutingHistory` | 工艺变更/版本记录 |
+| `mdm_operation_sop` | `MdmOperationSop` | 工序 SOP |
+| `mdm_operation_device` | `MdmOperationDevice` | 工序设备绑定 |
+| `mdm_operation_material` | `MdmOperationMaterial` | 工序物料绑定 |
+| `mdm_routing_history` | `MdmRoutingHistory` | 工艺版本历史 |
+| `ai_chat_log` | `AiChatLog` | AI 对话历史 |
+| `sys_coze_config` | `SysCozeConfig` | Coze 配置 |
+| `sys_role_permission` | `SysRolePermission` | 角色权限 |
+| `sys_notification` | `SysNotification` | 系统通知 |
+| `sys_operation_log` | `SysOperationLog` | 操作审计日志 |
 
 **工艺路线**（`mdm_routing` + `mdm_operation` + `mdm_operation_param`，入口「工艺管理」）：
 
@@ -174,15 +194,17 @@
 备料 → 装配 → 检测 → 包装
 ```
 
-### 3.4 角色与权限（14 项）
+### 3.4 角色与权限（17 项，5 种角色）
 
 | 角色 | 默认权限 |
 |------|----------|
-| **管理员** `admin` | 全部 14 项 |
-| **车间主管** `supervisor` | 生产计划、工单管理、班组、物料、**设备**、排产、异常上报、AI 客服 |
-| **普通员工** `worker` | 工序进度、工单反馈、异常上报、AI 客服 |
+| **管理员** `admin` | 全部 17 项 |
+| **车间主管** `supervisor` | 生产计划、工单管理、工单反馈、班组、物料、设备、排产、异常上报、AI 客服、工艺管理 |
+| **计划员** `planner` | 生产计划、工单管理、物料、产品管理、排产、工艺管理、AI 客服 |
+| **工程师** `engineer` | 设备、工单管理、工序进度、异常上报、工艺管理、**工艺审批**、AI 客服 |
+| **操作工** `worker` | 工序进度、工单反馈、异常上报、AI 客服 |
 
-权限项：`生产计划`、`工单管理`、`班组`、`物料`、**`设备`**、`排产`、`工序进度`、`工单反馈`、`异常上报`、`AI 客服`、`用户管理`、`角色管理`、`Coze 配置`、`系统配置`。
+权限项（17）：`生产计划`、`工单管理`、`班组`、`物料`、`产品管理`、`设备`、`排产`、`工序进度`、`工单反馈`、`异常上报`、`AI 客服`、`用户管理`、`角色管理`、`Coze 配置`、`系统配置`、`工艺管理`、`工艺审批`。
 
 > API 层已使用 `@SaCheckPermission` 与 `sys_role_permission` 对齐；驾驶舱/通知等只读接口使用 `@SaCheckLogin`。
 
@@ -203,11 +225,12 @@ pending（待分配）
 
 ### 4.2 计划下发逻辑
 
-1. 创建草稿计划（`draft`）
-2. 下发（`released`）→ 按**产品名匹配工艺**（无则默认路线）创建工单 + 工序快照，并写入 `routing_id` / `route_version` / `estimated_hours`
-3. 所有关联工单 `done` 后计划变为 `done`
+1. 创建草稿计划（`draft`），可绑定 `product_id` 或 `product_name`
+2. 下发预览（`GET /plans/{id}/release-preview`）→ 按拆分策略展示将生成的工单列表
+3. 下发（`released`）→ 按每单 N 件（默认 100）拆分多工单，匹配工艺路线并初始化工序快照
+4. 所有关联工单 `done` 后计划变为 `done`
 
-**局限**：一个计划只拆一个工单；无法按数量/批次拆分；工艺路线已可配置但尚未按产品绑定。
+**已支持**：一计划多工单拆分、BOM 缺失警告、产品主数据绑定。
 
 ### 4.3 AI 能力矩阵
 

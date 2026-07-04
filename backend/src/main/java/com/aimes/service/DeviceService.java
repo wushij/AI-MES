@@ -1,17 +1,23 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
+import com.aimes.common.OperationLog;
+import com.aimes.common.OperationLogRunner;
 import com.aimes.dto.Requests.DeviceSaveRequest;
 import com.aimes.dto.Requests.DeviceStatusRequest;
 import com.aimes.entity.DevDevice;
 import com.aimes.entity.DevDeviceHistory;
 import com.aimes.entity.ExcEvent;
+import com.aimes.entity.ProdProcessRecord;
 import com.aimes.entity.ProdTeam;
+import com.aimes.entity.ProdWorkOrder;
 import com.aimes.entity.SysUser;
 import com.aimes.mapper.DevDeviceHistoryMapper;
 import com.aimes.mapper.DevDeviceMapper;
 import com.aimes.mapper.ExcEventMapper;
+import com.aimes.mapper.ProdProcessRecordMapper;
 import com.aimes.mapper.ProdTeamMapper;
+import com.aimes.mapper.ProdWorkOrderMapper;
 import com.aimes.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +27,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,8 +48,11 @@ public class DeviceService {
     private final ProdTeamMapper prodTeamMapper;
     private final SysUserMapper sysUserMapper;
     private final ExcEventMapper excEventMapper;
+    private final ProdProcessRecordMapper prodProcessRecordMapper;
+    private final ProdWorkOrderMapper prodWorkOrderMapper;
     private final DeviceCategoryService deviceCategoryService;
     private final AuthService authService;
+    private final OperationLogRunner operationLogRunner;
 
     public List<Map<String, Object>> list(String keyword, String status, Long categoryId) {
         LambdaQueryWrapper<DevDevice> wrapper = new LambdaQueryWrapper<DevDevice>()
@@ -57,7 +66,52 @@ public class DeviceService {
                 .eq(StringUtils.hasText(status), DevDevice::getStatus, status)
                 .eq(categoryId != null, DevDevice::getCategoryId, categoryId)
                 .orderByAsc(DevDevice::getDeviceCode);
-        return devDeviceMapper.selectList(wrapper).stream().map(this::toView).toList();
+        List<DevDevice> devices = devDeviceMapper.selectList(wrapper);
+        Map<Long, Long> alertCounts = countTodayAlertsByDevice();
+        return devices.stream().map(device -> {
+            Map<String, Object> view = toView(device);
+            view.put("todayAlertCount", alertCounts.getOrDefault(device.getId(), 0L));
+            return view;
+        }).toList();
+    }
+
+    public List<Map<String, Object>> listProcessRecords(Long deviceId) {
+        getDevice(deviceId);
+        List<ProdProcessRecord> records = prodProcessRecordMapper.selectList(new LambdaQueryWrapper<ProdProcessRecord>()
+                .eq(ProdProcessRecord::getDeviceId, deviceId)
+                .orderByDesc(ProdProcessRecord::getStartTime)
+                .orderByDesc(ProdProcessRecord::getId)
+                .last("limit 100"));
+        if (records.isEmpty()) {
+            return List.of();
+        }
+        List<Long> workOrderIds = records.stream()
+                .map(ProdProcessRecord::getWorkOrderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, ProdWorkOrder> orderMap = workOrderIds.isEmpty()
+                ? Map.of()
+                : prodWorkOrderMapper.selectBatchIds(workOrderIds).stream()
+                .collect(java.util.stream.Collectors.toMap(ProdWorkOrder::getId, o -> o, (a, b) -> a));
+        return records.stream().map(record -> toProcessRecordView(record, orderMap.get(record.getWorkOrderId()))).toList();
+    }
+
+    private Map<Long, Long> countTodayAlertsByDevice() {
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        LocalDateTime tomorrowStart = todayStart.plusDays(1);
+        List<ExcEvent> events = excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
+                .eq(ExcEvent::getEventType, "device")
+                .ge(ExcEvent::getOccurTime, todayStart)
+                .lt(ExcEvent::getOccurTime, tomorrowStart)
+                .isNotNull(ExcEvent::getDeviceId));
+        Map<Long, Long> counts = new HashMap<>();
+        for (ExcEvent event : events) {
+            if (event.getDeviceId() != null) {
+                counts.merge(event.getDeviceId(), 1L, Long::sum);
+            }
+        }
+        return counts;
     }
 
     public List<Map<String, Object>> options() {
@@ -262,7 +316,12 @@ public class DeviceService {
     }
 
     @Transactional
+    @OperationLog(module = "设备管理", action = "删除")
     public void delete(Long id) {
+        operationLogRunner.runVoid("设备管理", "删除", "delete", new Object[]{id}, () -> deleteInternal(id));
+    }
+
+    private void deleteInternal(Long id) {
         getDevice(id);
         long related = excEventMapper.selectCount(new LambdaQueryWrapper<ExcEvent>()
                 .eq(ExcEvent::getDeviceId, id));
@@ -405,6 +464,8 @@ public class DeviceService {
         if (!Objects.equals(before.getTeamId(), request.getTeamId())) {
             changes.add("责任班组：" + displayTeam(before.getTeamId()) + " → " + displayTeam(request.getTeamId()));
         }
+        appendDateChange(changes, "购买日期", before.getPurchaseDate(), request.getPurchaseDate());
+        appendDateChange(changes, "安装日期", before.getInstallDate(), request.getInstallDate());
         appendDateChange(changes, "启用日期", before.getEnableDate(), request.getEnableDate());
         appendDateChange(changes, "保修截止", before.getWarrantyDate(), request.getWarrantyDate());
         appendTextChange(changes, "备注", before.getRemark(), request.getRemark());
@@ -552,6 +613,34 @@ public class DeviceService {
         row.put("occurTime", event.getOccurTime());
         row.put("handleResult", event.getHandleResult());
         return row;
+    }
+
+    private Map<String, Object> toProcessRecordView(ProdProcessRecord record, ProdWorkOrder order) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", record.getId());
+        row.put("workOrderId", record.getWorkOrderId());
+        row.put("orderNo", order == null ? null : order.getOrderNo());
+        row.put("productName", order == null ? null : order.getProductName());
+        row.put("processName", record.getProcessName());
+        row.put("seqNo", record.getSeqNo());
+        row.put("status", record.getStatus());
+        row.put("statusLabel", processRecordStatusLabel(record.getStatus()));
+        row.put("startTime", record.getStartTime());
+        row.put("endTime", record.getEndTime());
+        row.put("remark", record.getRemark());
+        return row;
+    }
+
+    private String processRecordStatusLabel(String status) {
+        if (status == null) {
+            return "待开始";
+        }
+        return switch (status) {
+            case "running" -> "进行中";
+            case "paused" -> "已暂停";
+            case "done" -> "已完成";
+            default -> "待开始";
+        };
     }
 
     private Map<String, Object> toHistoryView(DevDeviceHistory history) {

@@ -1,6 +1,8 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
+import com.aimes.common.OperationLog;
+import com.aimes.common.OperationLogRunner;
 import com.aimes.dto.Requests.ProcessMaterialItem;
 import com.aimes.dto.Requests.ProcessOperationItem;
 import com.aimes.dto.Requests.ProcessParameterItem;
@@ -70,6 +72,8 @@ public class ProcessRouteService {
     private final AuthService authService;
     private final FileStorageService fileStorageService;
     private final RoleService roleService;
+    private final OperationLogRunner operationLogRunner;
+    private final ProductService productService;
 
     public List<String> getDefaultOperationNames() {
         return resolveRouting(null).operations().stream().map(MdmOperation::getOperationName).toList();
@@ -103,11 +107,12 @@ public class ProcessRouteService {
         }
         RoutingContext ctx = order.getRoutingId() != null
                 ? loadRoutingContext(order.getRoutingId())
-                : resolveRouting(order.getProductName());
+                : resolveRouting(order.getProductId(), order.getProductName());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("workOrderId", workOrderId);
         result.put("routingId", order.getRoutingId());
         result.put("routeVersion", order.getRouteVersion());
+        result.put("productId", order.getProductId());
         result.put("productName", order.getProductName());
         List<Map<String, Object>> operations = new ArrayList<>();
         for (MdmOperation operation : ctx.operations()) {
@@ -120,12 +125,16 @@ public class ProcessRouteService {
 
     @Transactional
     public Map<String, Object> createRoute(ProcessRouteSaveRequest request) {
-        validateOperations(request.getOperations());
+        if (hasOperations(request.getOperations())) {
+            validateOperations(request.getOperations());
+        } else if (requiresOperations(request.getSaveMode())) {
+            throw new BusinessException("至少配置一道工序");
+        }
         MdmRouting routing = new MdmRouting();
         routing.setRouteCode(StringUtils.hasText(request.getRouteCode()) ? request.getRouteCode().trim() : nextRouteCode());
         ensureUniqueCode(routing.getRouteCode(), null);
         routing.setRouteName(request.getRouteName().trim());
-        routing.setProductName(StringUtils.hasText(request.getProductName()) ? request.getProductName().trim() : null);
+        applyProductBinding(routing, request.getProductId(), request.getProductName());
         routing.setVersion("V1.0");
         routing.setStatus(resolveInitialStatus(request.getSaveMode()));
         routing.setIsDefault(0);
@@ -134,7 +143,9 @@ public class ProcessRouteService {
         routing.setCreatedTime(LocalDateTime.now());
         routing.setUpdatedTime(LocalDateTime.now());
         mdmRoutingMapper.insert(routing);
-        saveOperations(routing.getId(), request.getOperations());
+        if (hasOperations(request.getOperations())) {
+            saveOperations(routing.getId(), request.getOperations());
+        }
         recordHistory(routing.getId(), routing.getVersion(), "create", "新建工艺路线");
         if ("published".equals(routing.getStatus())) {
             recordHistory(routing.getId(), routing.getVersion(), "publish", "发布工艺 " + routing.getVersion());
@@ -146,19 +157,25 @@ public class ProcessRouteService {
 
     @Transactional
     public Map<String, Object> updateRoute(Long id, ProcessRouteSaveRequest request) {
-        validateOperations(request.getOperations());
+        if (hasOperations(request.getOperations())) {
+            validateOperations(request.getOperations());
+        } else if (requiresOperations(request.getSaveMode())) {
+            throw new BusinessException("至少配置一道工序");
+        }
         MdmRouting routing = requireRouting(id);
         if (StringUtils.hasText(request.getRouteCode()) && !request.getRouteCode().equals(routing.getRouteCode())) {
             ensureUniqueCode(request.getRouteCode(), id);
             routing.setRouteCode(request.getRouteCode().trim());
         }
         routing.setRouteName(request.getRouteName().trim());
-        routing.setProductName(StringUtils.hasText(request.getProductName()) ? request.getProductName().trim() : null);
+        applyProductBinding(routing, request.getProductId(), request.getProductName());
         routing.setRemark(request.getRemark());
         routing.setUpdatedTime(LocalDateTime.now());
         applySaveMode(routing, request.getSaveMode());
         mdmRoutingMapper.updateById(routing);
-        saveOperations(routing.getId(), request.getOperations());
+        if (hasOperations(request.getOperations())) {
+            saveOperations(routing.getId(), request.getOperations());
+        }
         return toRouteView(routing, true);
     }
 
@@ -177,7 +194,13 @@ public class ProcessRouteService {
     }
 
     @Transactional
+    @OperationLog(module = "工艺管理", action = "审批通过")
     public Map<String, Object> approveRoute(Long id) {
+        return operationLogRunner.runUnchecked("工艺管理", "审批通过", "approveRoute", new Object[]{id},
+                () -> approveRouteInternal(id));
+    }
+
+    private Map<String, Object> approveRouteInternal(Long id) {
         ensureApprovalPermission();
         MdmRouting routing = requireRouting(id);
         if (!"pending_approval".equals(routing.getStatus())) {
@@ -194,7 +217,13 @@ public class ProcessRouteService {
     }
 
     @Transactional
+    @OperationLog(module = "工艺管理", action = "审批驳回")
     public Map<String, Object> rejectRoute(Long id, String reason) {
+        return operationLogRunner.runUnchecked("工艺管理", "审批驳回", "rejectRoute", new Object[]{id, reason},
+                () -> rejectRouteInternal(id, reason));
+    }
+
+    private Map<String, Object> rejectRouteInternal(Long id, String reason) {
         ensureApprovalPermission();
         MdmRouting routing = requireRouting(id);
         if (!"pending_approval".equals(routing.getStatus())) {
@@ -225,7 +254,12 @@ public class ProcessRouteService {
     }
 
     @Transactional
+    @OperationLog(module = "工艺管理", action = "删除")
     public void deleteRoute(Long id) {
+        operationLogRunner.runVoid("工艺管理", "删除", "deleteRoute", new Object[]{id}, () -> deleteRouteInternal(id));
+    }
+
+    private void deleteRouteInternal(Long id) {
         MdmRouting routing = requireRouting(id);
         if (routing.getIsDefault() != null && routing.getIsDefault() == 1) {
             throw new BusinessException("默认工艺路线不能删除，请先指定其他默认路线");
@@ -243,13 +277,26 @@ public class ProcessRouteService {
         Map<String, Object> source = getRoute(id);
         ProcessRouteSaveRequest request = new ProcessRouteSaveRequest();
         request.setRouteName(source.get("routeName") + " (副本)");
+        if (source.get("productId") != null) {
+            request.setProductId(((Number) source.get("productId")).longValue());
+        }
         request.setProductName((String) source.get("productName"));
         request.setRemark((String) source.get("remark"));
         request.setSaveMode("draft");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> ops = (List<Map<String, Object>>) source.get("operations");
         request.setOperations(ops.stream().map(this::mapOperationItem).toList());
-        return createRoute(request);
+        Map<String, Object> created = createRoute(request);
+        Long newRoutingId = ((Number) created.get("id")).longValue();
+        Map<Integer, Long> newOpBySeq = listOperations(newRoutingId).stream()
+                .collect(Collectors.toMap(MdmOperation::getSeqNo, MdmOperation::getId, (a, b) -> a));
+        for (MdmOperation srcOp : listOperations(id)) {
+            Long newOpId = newOpBySeq.get(srcOp.getSeqNo());
+            if (newOpId != null) {
+                copyOperationSops(srcOp.getId(), newOpId);
+            }
+        }
+        return getRoute(newRoutingId);
     }
 
     @Transactional
@@ -345,8 +392,8 @@ public class ProcessRouteService {
     }
 
     @Transactional
-    public void applyRoutingToWorkOrder(ProdWorkOrder order, String productName) {
-        RoutingContext ctx = resolveRouting(productName);
+    public void applyRoutingToWorkOrder(ProdWorkOrder order, Long productId, String productName) {
+        RoutingContext ctx = resolveRouting(productId, productName);
         if (ctx.routing() != null) {
             order.setRoutingId(ctx.routing().getId());
             order.setRouteVersion(ctx.routing().getVersion());
@@ -359,8 +406,13 @@ public class ProcessRouteService {
     }
 
     @Transactional
-    public void initProcessRecords(Long workOrderId, String productName) {
-        RoutingContext ctx = resolveRouting(productName);
+    public void applyRoutingToWorkOrder(ProdWorkOrder order, String productName) {
+        applyRoutingToWorkOrder(order, order.getProductId(), productName);
+    }
+
+    @Transactional
+    public void initProcessRecords(Long workOrderId, Long productId, String productName) {
+        RoutingContext ctx = resolveRouting(productId, productName);
         for (MdmOperation operation : ctx.operations()) {
             ProdProcessRecord record = new ProdProcessRecord();
             record.setWorkOrderId(workOrderId);
@@ -374,9 +426,22 @@ public class ProcessRouteService {
         }
     }
 
-    public RoutingContext resolveRouting(String productName) {
+    @Transactional
+    public void initProcessRecords(Long workOrderId, String productName) {
+        initProcessRecords(workOrderId, null, productName);
+    }
+
+    public RoutingContext resolveRouting(Long productId, String productName) {
         MdmRouting routing = null;
-        if (StringUtils.hasText(productName)) {
+        if (productId != null) {
+            routing = mdmRoutingMapper.selectOne(new LambdaQueryWrapper<MdmRouting>()
+                    .eq(MdmRouting::getProductId, productId)
+                    .eq(MdmRouting::getEnabled, 1)
+                    .eq(MdmRouting::getStatus, "published")
+                    .orderByAsc(MdmRouting::getId)
+                    .last("limit 1"));
+        }
+        if (routing == null && StringUtils.hasText(productName)) {
             routing = mdmRoutingMapper.selectOne(new LambdaQueryWrapper<MdmRouting>()
                     .eq(MdmRouting::getProductName, productName.trim())
                     .eq(MdmRouting::getEnabled, 1)
@@ -395,6 +460,31 @@ public class ProcessRouteService {
             return RoutingContext.fallback();
         }
         return new RoutingContext(routing, operations, sumHours(operations));
+    }
+
+    public RoutingContext resolveRouting(String productName) {
+        return resolveRouting(null, productName);
+    }
+
+    private void applyProductBinding(MdmRouting routing, Long productId, String productName) {
+        if (productId != null) {
+            var product = productService.getProductSummary(productId);
+            if (product.isEmpty()) {
+                throw new BusinessException("关联产品不存在");
+            }
+            routing.setProductId(productId);
+            routing.setProductName((String) product.get("productName"));
+            return;
+        }
+        if (StringUtils.hasText(productName)) {
+            String name = productName.trim();
+            routing.setProductName(name);
+            var found = productService.findByName(name);
+            routing.setProductId(found == null ? null : found.getId());
+        } else {
+            routing.setProductName(null);
+            routing.setProductId(null);
+        }
     }
 
     private RoutingContext loadRoutingContext(Long routingId) {
@@ -488,6 +578,11 @@ public class ProcessRouteService {
                 recordHistory(routing.getId(), routing.getVersion(), "submit", "提交工艺审批");
             }
             default -> {
+                String currentStatus = routing.getStatus();
+                if ("published".equals(currentStatus) || "disabled".equals(currentStatus) || "pending_approval".equals(currentStatus)) {
+                    recordHistory(routing.getId(), routing.getVersion(), "update", "更新工艺基本信息");
+                    return;
+                }
                 routing.setStatus("draft");
                 routing.setEnabled(0);
                 recordHistory(routing.getId(), routing.getVersion(), "update", "保存工艺草稿");
@@ -535,13 +630,41 @@ public class ProcessRouteService {
     }
 
     private void validateOperations(List<ProcessOperationItem> items) {
-        if (items == null || items.isEmpty()) {
-            throw new BusinessException("至少配置一道工序");
-        }
         for (ProcessOperationItem item : items) {
             if (!StringUtils.hasText(item.getOperationName())) {
                 throw new BusinessException("工序名称不能为空");
             }
+        }
+    }
+
+    private boolean hasOperations(List<ProcessOperationItem> items) {
+        return items != null && !items.isEmpty();
+    }
+
+    private boolean requiresOperations(String saveMode) {
+        if (!StringUtils.hasText(saveMode)) {
+            return false;
+        }
+        String mode = saveMode.trim().toLowerCase();
+        return "publish".equals(mode) || "submit".equals(mode);
+    }
+
+    private void copyOperationSops(Long sourceOperationId, Long targetOperationId) {
+        List<MdmOperationSop> sops = mdmOperationSopMapper.selectList(new LambdaQueryWrapper<MdmOperationSop>()
+                .eq(MdmOperationSop::getOperationId, sourceOperationId)
+                .orderByAsc(MdmOperationSop::getId));
+        for (MdmOperationSop src : sops) {
+            String newPath = fileStorageService.copySop(src.getFilePath());
+            MdmOperationSop sop = new MdmOperationSop();
+            sop.setOperationId(targetOperationId);
+            sop.setFileName(src.getFileName());
+            sop.setFileType(src.getFileType());
+            sop.setFilePath(newPath);
+            sop.setFileSize(src.getFileSize());
+            sop.setRemark(src.getRemark());
+            sop.setCreatedTime(LocalDateTime.now());
+            sop.setUpdatedTime(LocalDateTime.now());
+            mdmOperationSopMapper.insert(sop);
         }
     }
 
@@ -794,6 +917,7 @@ public class ProcessRouteService {
         view.put("id", routing.getId());
         view.put("routeCode", routing.getRouteCode());
         view.put("routeName", routing.getRouteName());
+        view.put("productId", routing.getProductId());
         view.put("productName", routing.getProductName());
         view.put("version", routing.getVersion());
         view.put("status", routing.getStatus());

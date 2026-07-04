@@ -1,6 +1,6 @@
 import type { Component } from 'vue'
 
-export type UserRole = 'admin' | 'supervisor' | 'worker'
+export type UserRole = 'admin' | 'supervisor' | 'worker' | 'planner' | 'engineer'
 export type ThemePresetId = 'slate' | 'indigo' | 'teal' | 'emerald' | 'amber' | 'blush' | 'rose' | 'violet'
 export type PlanStatus = 'draft' | 'released' | 'paused' | 'completed'
 export type WorkOrderStatus = 'pending' | 'assigned' | 'producing' | 'exception' | 'done'
@@ -101,6 +101,7 @@ export interface WorkshopSummary {
 export interface Plan {
   id: number | string
   planNo: string
+  productId?: number | string
   productName: string
   planQty: number
   completedQty?: number

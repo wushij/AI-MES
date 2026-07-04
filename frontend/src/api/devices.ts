@@ -24,6 +24,7 @@ export interface DeviceItem {
   teamId?: number | string
   teamName?: string
   remark?: string
+  todayAlertCount?: number
   createdTime?: string
   updatedTime?: string
 }
@@ -67,6 +68,20 @@ export interface DeviceFullDetail extends DeviceItem {
   history?: DeviceHistoryItem[]
 }
 
+export interface DeviceProcessRecordItem {
+  id: number | string
+  workOrderId?: number | string
+  orderNo?: string
+  productName?: string
+  processName?: string
+  seqNo?: number
+  status?: string
+  statusLabel?: string
+  startTime?: string
+  endTime?: string
+  remark?: string
+}
+
 export interface DeviceSummary {
   totalCount: number
   runningCount: number
@@ -84,6 +99,10 @@ export function getDevices(params?: { keyword?: string; status?: string; categor
 
 export function getDeviceOptions() {
   return request.get<Array<{ id: number | string; deviceCode: string; deviceName: string; lineName?: string; status?: string; statusLabel?: string; selectable?: boolean }>>('/devices/options').then((res) => res.data)
+}
+
+export function getDeviceProcessRecords(id: number | string) {
+  return request.get<DeviceProcessRecordItem[]>(`/devices/${id}/process-records`).then((res) => res.data)
 }
 
 export function getDeviceDetail(id: number | string) {

@@ -59,6 +59,8 @@ springdoc:
 
 aimes:
   upload-dir: ${UPLOAD_DIR:uploads}
+  plan-split-qty: ${PLAN_SPLIT_QTY:100}
+  bom-pick-on-complete: ${BOM_PICK_ON_COMPLETE:true}
 
 coze:
   api-token: ${COZE_API_TOKEN:}

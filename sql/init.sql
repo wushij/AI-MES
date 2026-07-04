@@ -31,6 +31,7 @@ USE `AI-MES`;
 -- -----------------------------------------------------------------------------
 -- 2. 删除旧表（按依赖顺序）
 -- -----------------------------------------------------------------------------
+DROP TABLE IF EXISTS sys_operation_log;
 DROP TABLE IF EXISTS sys_coze_config;
 DROP TABLE IF EXISTS ai_chat_log;
 DROP TABLE IF EXISTS exc_event;
@@ -39,6 +40,12 @@ DROP TABLE IF EXISTS prod_work_order;
 DROP TABLE IF EXISTS prod_plan;
 DROP TABLE IF EXISTS sys_user;
 DROP TABLE IF EXISTS prod_team;
+DROP TABLE IF EXISTS qms_inspection_record;
+DROP TABLE IF EXISTS qms_inspection_plan;
+DROP TABLE IF EXISTS inv_transaction;
+DROP TABLE IF EXISTS mdm_bom_item;
+DROP TABLE IF EXISTS mdm_bom;
+DROP TABLE IF EXISTS mdm_product;
 DROP TABLE IF EXISTS mat_material;
 DROP TABLE IF EXISTS mdm_operation_material;
 DROP TABLE IF EXISTS mdm_operation_device;
@@ -91,6 +98,7 @@ CREATE TABLE sys_user (
 CREATE TABLE prod_plan (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
     plan_no VARCHAR(30) NOT NULL COMMENT '计划编号',
+    product_id BIGINT NULL COMMENT '关联产品主数据ID',
     product_name VARCHAR(100) NOT NULL COMMENT '产品名称',
     plan_qty INT NOT NULL COMMENT '计划数量',
     plan_date DATE NOT NULL COMMENT '计划日期',
@@ -110,7 +118,9 @@ CREATE TABLE prod_work_order (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
     order_no VARCHAR(30) NOT NULL COMMENT '工单号',
     plan_id BIGINT NULL COMMENT '关联计划ID',
+    product_id BIGINT NULL COMMENT '关联产品主数据ID',
     product_name VARCHAR(100) NOT NULL COMMENT '产品名称',
+    order_qty INT NOT NULL DEFAULT 1 COMMENT '工单生产数量',
     team_id BIGINT NULL COMMENT '负责班组ID',
     routing_id BIGINT NULL COMMENT '引用工艺路线ID',
     route_version VARCHAR(16) NULL COMMENT '工艺版本快照',
@@ -190,6 +200,106 @@ CREATE TABLE mat_material (
     KEY idx_material_alert (alert_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='物料库存';
 
+-- 产品主数据
+CREATE TABLE mdm_product (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    product_code VARCHAR(32) NOT NULL COMMENT '产品编码',
+    product_name VARCHAR(100) NOT NULL COMMENT '产品名称',
+    spec VARCHAR(100) NULL COMMENT '规格型号',
+    unit VARCHAR(10) NOT NULL DEFAULT '件' COMMENT '单位',
+    status VARCHAR(16) NOT NULL DEFAULT 'active' COMMENT '状态：active/inactive',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_product_code (product_code),
+    KEY idx_product_name (product_name),
+    KEY idx_product_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='产品主数据';
+
+-- BOM 头
+CREATE TABLE mdm_bom (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    product_id BIGINT NOT NULL COMMENT '产品ID',
+    version VARCHAR(16) NOT NULL DEFAULT 'V1.0' COMMENT 'BOM版本',
+    status VARCHAR(16) NOT NULL DEFAULT 'active' COMMENT '状态：draft/active',
+    is_default TINYINT NOT NULL DEFAULT 1 COMMENT '是否默认版本',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_bom_product (product_id),
+    CONSTRAINT fk_bom_product FOREIGN KEY (product_id) REFERENCES mdm_product(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BOM头';
+
+-- BOM 行
+CREATE TABLE mdm_bom_item (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    bom_id BIGINT NOT NULL COMMENT 'BOM头ID',
+    material_id BIGINT NOT NULL COMMENT '物料ID',
+    qty DECIMAL(10,4) NOT NULL DEFAULT 1 COMMENT '单位用量',
+    unit VARCHAR(10) NOT NULL COMMENT '单位',
+    loss_rate DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '损耗率(%)',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_bom_item_bom (bom_id),
+    KEY idx_bom_item_material (material_id),
+    CONSTRAINT fk_bom_item_bom FOREIGN KEY (bom_id) REFERENCES mdm_bom(id) ON DELETE CASCADE,
+    CONSTRAINT fk_bom_item_material FOREIGN KEY (material_id) REFERENCES mat_material(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BOM行';
+
+-- 库存事务流水
+CREATE TABLE inv_transaction (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    material_id BIGINT NOT NULL COMMENT '物料ID',
+    txn_type VARCHAR(16) NOT NULL COMMENT '类型：in/out/pick/return/adjust',
+    qty DECIMAL(10,2) NOT NULL COMMENT '变动数量（正数）',
+    before_qty DECIMAL(10,2) NOT NULL COMMENT '变动前库存',
+    after_qty DECIMAL(10,2) NOT NULL COMMENT '变动后库存',
+    ref_type VARCHAR(32) NULL COMMENT '关联类型：material/work_order/manual',
+    ref_id BIGINT NULL COMMENT '关联ID',
+    operator_id BIGINT NULL COMMENT '操作人ID',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    KEY idx_inv_txn_material (material_id),
+    KEY idx_inv_txn_time (created_time),
+    KEY idx_inv_txn_type (txn_type),
+    CONSTRAINT fk_inv_txn_material FOREIGN KEY (material_id) REFERENCES mat_material(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存事务流水';
+
+-- 检验计划（按工序）
+CREATE TABLE qms_inspection_plan (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    operation_id BIGINT NOT NULL COMMENT '工序ID',
+    item_name VARCHAR(64) NOT NULL COMMENT '检验项名称',
+    standard VARCHAR(64) NULL COMMENT '标准值',
+    min_value VARCHAR(32) NULL COMMENT '下限',
+    max_value VARCHAR(32) NULL COMMENT '上限',
+    unit VARCHAR(16) NULL COMMENT '单位',
+    sort_no INT NOT NULL DEFAULT 0 COMMENT '排序',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_qms_plan_operation (operation_id),
+    CONSTRAINT fk_qms_plan_operation FOREIGN KEY (operation_id) REFERENCES mdm_operation(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='检验计划';
+
+-- 检验记录
+CREATE TABLE qms_inspection_record (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    work_order_id BIGINT NOT NULL COMMENT '工单ID',
+    process_record_id BIGINT NULL COMMENT '工序记录ID',
+    operation_id BIGINT NULL COMMENT '工序ID',
+    plan_id BIGINT NULL COMMENT '检验计划ID',
+    item_name VARCHAR(64) NOT NULL COMMENT '检验项名称',
+    measured_value VARCHAR(64) NULL COMMENT '实测值',
+    result VARCHAR(16) NOT NULL COMMENT '结果：pass/fail',
+    inspector_id BIGINT NULL COMMENT '检验人ID',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    KEY idx_qms_record_order (work_order_id),
+    KEY idx_qms_record_process (process_record_id),
+    CONSTRAINT fk_qms_record_order FOREIGN KEY (work_order_id) REFERENCES prod_work_order(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='检验记录';
+
 -- 设备分类
 CREATE TABLE dev_device_category (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
@@ -254,6 +364,7 @@ CREATE TABLE mdm_routing (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
     route_code VARCHAR(32) NOT NULL COMMENT '路线编码',
     route_name VARCHAR(64) NOT NULL COMMENT '路线名称',
+    product_id BIGINT NULL COMMENT '关联产品主数据ID',
     product_name VARCHAR(100) NULL COMMENT '适用产品（可选，空为通用）',
     version VARCHAR(16) NOT NULL DEFAULT 'V1.0' COMMENT '当前版本',
     status VARCHAR(16) NOT NULL DEFAULT 'published' COMMENT '状态：draft/pending_approval/published/rejected/disabled',
@@ -381,6 +492,26 @@ CREATE TABLE ai_chat_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI客服聊天记录';
 
 -- Coze 集成配置（单行表，id 固定为 1）
+-- 增量升级脚本见：sql/migrations/
+CREATE TABLE sys_operation_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    user_id BIGINT NULL COMMENT '操作人ID',
+    username VARCHAR(50) NULL COMMENT '操作人账号',
+    real_name VARCHAR(50) NULL COMMENT '操作人姓名',
+    module VARCHAR(32) NOT NULL COMMENT '模块',
+    action VARCHAR(32) NOT NULL COMMENT '操作',
+    target_type VARCHAR(32) NULL COMMENT '目标类型',
+    target_id VARCHAR(64) NULL COMMENT '目标ID',
+    description VARCHAR(255) NULL COMMENT '描述',
+    ip_address VARCHAR(64) NULL COMMENT 'IP地址',
+    success TINYINT NOT NULL DEFAULT 1 COMMENT '是否成功：1成功 0失败',
+    error_msg VARCHAR(255) NULL COMMENT '失败原因',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    KEY idx_op_log_user (user_id),
+    KEY idx_op_log_time (create_time),
+    KEY idx_op_log_module (module)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作审计日志';
+
 -- 增量升级脚本见：sql/migrations/001_add_sys_coze_config.sql
 CREATE TABLE sys_coze_config (
     id BIGINT PRIMARY KEY COMMENT '固定为 1',
@@ -407,16 +538,16 @@ INSERT INTO sys_coze_config (id, bot_id, api_url, workflow_id, welcome_message, 
 -- 角色权限初始数据
 INSERT INTO sys_role_permission (role_key, permission) VALUES
 -- admin 拥有所有权限
-('admin', '生产计划'), ('admin', '工单管理'), ('admin', '班组'), ('admin', '物料'), ('admin', '设备'), ('admin', '排产'),
+('admin', '生产计划'), ('admin', '工单管理'), ('admin', '班组'), ('admin', '物料'), ('admin', '产品管理'), ('admin', '设备'), ('admin', '排产'),
 ('admin', '工序进度'), ('admin', '工单反馈'), ('admin', '异常上报'), ('admin', 'AI 客服'),
 ('admin', '用户管理'), ('admin', '角色管理'), ('admin', 'Coze 配置'), ('admin', '系统配置'), ('admin', '工艺管理'), ('admin', '工艺审批'),
 -- supervisor（车间主管）：全面管理车间运行，含工单反馈查阅；工艺审批移至专业工程师
 ('supervisor', '生产计划'), ('supervisor', '工单管理'), ('supervisor', '工单反馈'), ('supervisor', '班组'),
-('supervisor', '物料'), ('supervisor', '设备'), ('supervisor', '排产'), ('supervisor', '异常上报'), ('supervisor', 'AI 客服'), ('supervisor', '工艺管理'),
+('supervisor', '物料'), ('supervisor', '设备'), ('supervisor', '排产'), ('supervisor', '异常上报'), ('supervisor', 'AI 客服'), ('supervisor', '工艺管理'), ('supervisor', '产品管理'),
 -- planner（计划与物控）：主导计划、排产、物料与工艺，需查看工单执行情况
-('planner', '生产计划'), ('planner', '工单管理'), ('planner', '物料'), ('planner', '排产'), ('planner', '工艺管理'), ('planner', 'AI 客服'),
--- engineer（设备与品质工程师）：设备运维 + 工序质量管控，需参考工艺与工单上下文
-('engineer', '设备'), ('engineer', '工单管理'), ('engineer', '工序进度'), ('engineer', '异常上报'), ('engineer', '工艺管理'), ('engineer', 'AI 客服'),
+('planner', '生产计划'), ('planner', '工单管理'), ('planner', '物料'), ('planner', '产品管理'), ('planner', '排产'), ('planner', '工艺管理'), ('planner', 'AI 客服'),
+-- engineer（设备与品质工程师）：设备运维 + 工序质量管控 + 工艺审批
+('engineer', '设备'), ('engineer', '工单管理'), ('engineer', '工序进度'), ('engineer', '异常上报'), ('engineer', '工艺管理'), ('engineer', '工艺审批'), ('engineer', 'AI 客服'), ('engineer', '产品管理'),
 -- worker（普通操作工）：仅限执行层操作
 ('worker', '工序进度'), ('worker', '工单反馈'), ('worker', '异常上报'), ('worker', 'AI 客服');
 
@@ -452,10 +583,15 @@ INSERT INTO dev_device (id, device_code, device_name, category_id, device_type, 
 (2, 'DEV-002', '检测台 Q1',   3, 'inspection', '海克斯', 'QC-200', '一车间', '产线A', '工位Q1', 2, 'idle',        1, '2025-02-01', '尺寸检测',     NOW(), NOW()),
 (3, 'DEV-003', '包装线 P1',   4, 'packaging',  '联塑',   'PK-50',  '二车间', '产线B', '工位P1', 2, 'idle',        2, '2025-03-15', '乙班包装',     NOW(), NOW());
 
+-- 产品主数据
+INSERT INTO mdm_product (id, product_code, product_name, spec, unit, status, remark, created_time, updated_time) VALUES
+(1, 'PRD-001', '精密组件C', 'C-Type Precision', '件', 'active', '重点产品', NOW(), NOW()),
+(2, 'PRD-002', '标准组件B', 'B-Type Standard',  '件', 'active', '常规产品', NOW(), NOW());
+
 -- 默认工艺路线
-INSERT INTO mdm_routing (id, route_code, route_name, product_name, version, status, is_default, enabled, remark, created_time, updated_time) VALUES
-(1, 'ROUTE-STD', '标准装配路线', NULL, 'V1.0', 'published', 1, 1, '默认四道工序，适用于通用产品', NOW(), NOW()),
-(2, 'ROUTE-C',   '精密组件C工艺', '精密组件C', 'V1.0', 'published', 0, 1, '精密组件C专用路线', NOW(), NOW());
+INSERT INTO mdm_routing (id, route_code, route_name, product_id, product_name, version, status, is_default, enabled, remark, created_time, updated_time) VALUES
+(1, 'ROUTE-STD', '标准装配路线', NULL, NULL, 'V1.0', 'published', 1, 1, '默认四道工序，适用于通用产品', NOW(), NOW()),
+(2, 'ROUTE-C',   '精密组件C工艺', 1, '精密组件C', 'V1.0', 'published', 0, 1, '精密组件C专用路线', NOW(), NOW());
 
 INSERT INTO mdm_operation (id, routing_id, operation_code, seq_no, operation_name, standard_hours, prep_hours, need_report, need_check, need_scan, remark, created_time, updated_time) VALUES
 (1, 1, 'OP10', 1, '备料', 1.00, 0.25, 1, 0, 0, NULL, NOW(), NOW()),
@@ -474,6 +610,13 @@ INSERT INTO mdm_operation_param (operation_id, param_name, param_value, min_valu
 (6, '扭矩', '15', '13', '17', 'N·m', NOW(), NOW()),
 (7, '尺寸公差', '0.02', '0', '0.02', 'mm', NOW(), NOW());
 
+-- 检验计划（检测工序）
+INSERT INTO qms_inspection_plan (operation_id, item_name, standard, min_value, max_value, unit, sort_no, created_time, updated_time) VALUES
+(3, '外观检查', '无划痕', NULL, NULL, NULL, 1, NOW(), NOW()),
+(3, '尺寸公差', '0.05', '0', '0.05', 'mm', 2, NOW(), NOW()),
+(7, '尺寸公差', '0.02', '0', '0.02', 'mm', 1, NOW(), NOW()),
+(7, '表面粗糙度', 'Ra1.6', NULL, 'Ra1.6', NULL, 2, NOW(), NOW());
+
 INSERT INTO mdm_routing_history (routing_id, version, action_type, action_desc, operator_id, operator_name, create_time) VALUES
 (1, 'V1.0', 'publish', '初始发布标准装配路线', 2, '张主管', NOW()),
 (2, 'V1.0', 'publish', '初始发布精密组件C工艺', 2, '张主管', NOW());
@@ -487,30 +630,30 @@ INSERT INTO mdm_operation_material (operation_id, material_id, qty, unit, materi
 (1, 2, 1.0000, 'pcs', 'aux', '辅料', NOW(), NOW());
 
 -- 生产计划
-INSERT INTO prod_plan (id, plan_no, product_name, plan_qty, plan_date, status, created_by, remark, release_time, created_time, updated_time) VALUES
-(1, 'PLAN-2026-001', '精密组件C', 300, '2026-07-01', 'released', 2, '重点订单，优先安排', NOW(), NOW(), NOW()),
-(2, 'PLAN-2026-002', '标准组件B', 180, '2026-07-02', 'draft',    2, '常规生产计划',       NULL, NOW(), NOW());
+INSERT INTO prod_plan (id, plan_no, product_id, product_name, plan_qty, plan_date, status, created_by, remark, release_time, created_time, updated_time) VALUES
+(1, 'PLAN-2026-001', 1, '精密组件C', 300, '2026-07-01', 'released', 2, '重点订单，优先安排', NOW(), NOW(), NOW()),
+(2, 'PLAN-2026-002', 2, '标准组件B', 180, '2026-07-02', 'draft',    2, '常规生产计划',       NULL, NOW(), NOW());
 
 -- 生产工单
-INSERT INTO prod_work_order (id, order_no, plan_id, product_name, team_id, process_name, progress, status, priority, deadline, claim_user_id, remark, created_time, updated_time) VALUES
-(1, 'WO-2026-001', 1,    '精密组件C', 1,    '装配', 65, 'producing', 1, '2026-07-02 18:00:00', 3,    '核心客户订单',     NOW(), NOW()),
-(2, 'WO-2026-002', 1,    '精密组件C', 2,    '备料',  0, 'assigned',  2, '2026-07-03 18:00:00', NULL, '待班组领取',       NOW(), NOW()),
-(3, 'WO-2026-003', NULL, '标准组件B', NULL, '备料',  0, 'pending',   3, '2026-07-04 18:00:00', NULL, '手动新增工单样例', NOW(), NOW());
+INSERT INTO prod_work_order (id, order_no, plan_id, product_id, product_name, order_qty, team_id, routing_id, route_version, process_name, progress, status, priority, deadline, claim_user_id, remark, created_time, updated_time) VALUES
+(1, 'WO-2026-001', 1,    1, '精密组件C', 100, 1,    2, 'V1.0', '装配', 65, 'producing', 1, '2026-07-02 18:00:00', 3,    '核心客户订单',     NOW(), NOW()),
+(2, 'WO-2026-002', 1,    1, '精密组件C', 100, 2,    2, 'V1.0', '备料',  0, 'assigned',  2, '2026-07-03 18:00:00', NULL, '待班组领取',       NOW(), NOW()),
+(3, 'WO-2026-003', NULL, 2, '标准组件B',  50, NULL, 1, 'V1.0', '备料',  0, 'pending',   3, '2026-07-04 18:00:00', NULL, '手动新增工单样例', NOW(), NOW());
 
--- 工序进度
-INSERT INTO prod_process_record (work_order_id, process_name, seq_no, status, start_time, end_time, remark, created_time, updated_time) VALUES
-(1, '备料', 1, 'done',    '2026-06-30 08:00:00', '2026-06-30 09:00:00', '物料齐套',     NOW(), NOW()),
-(1, '装配', 2, 'running', '2026-06-30 09:30:00', NULL,                  '当前进行中',   NOW(), NOW()),
-(1, '检测', 3, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
-(1, '包装', 4, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
-(2, '备料', 1, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
-(2, '装配', 2, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
-(2, '检测', 3, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
-(2, '包装', 4, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
-(3, '备料', 1, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
-(3, '装配', 2, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
-(3, '检测', 3, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
-(3, '包装', 4, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW());
+-- 工序进度（含 operation_id / device_id 以贯通质量与设备）
+INSERT INTO prod_process_record (work_order_id, operation_id, device_id, process_name, seq_no, status, start_time, end_time, remark, created_time, updated_time) VALUES
+(1, 5, NULL, '备料', 1, 'done',    '2026-06-30 08:00:00', '2026-06-30 09:00:00', '物料齐套',     NOW(), NOW()),
+(1, 6, 1,    '装配', 2, 'running', '2026-06-30 09:30:00', NULL,                  '当前进行中',   NOW(), NOW()),
+(1, 7, NULL, '检测', 3, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
+(1, 8, NULL, '包装', 4, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
+(2, 5, NULL, '备料', 1, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
+(2, 6, NULL, '装配', 2, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
+(2, 7, NULL, '检测', 3, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
+(2, 8, NULL, '包装', 4, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
+(3, 1, NULL, '备料', 1, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
+(3, 2, NULL, '装配', 2, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
+(3, 3, NULL, '检测', 3, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
+(3, 4, NULL, '包装', 4, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW());
 
 -- 异常事件
 INSERT INTO exc_event (id, event_no, event_type, work_order_id, device_id, description, status, reporter_id, handler_id, occur_time, create_time, handle_time, handle_action, handle_result) VALUES
@@ -529,6 +672,21 @@ INSERT INTO mat_material (id, material_code, material_name, stock_qty, safety_st
 (1, 'MAT-001', '精密螺丝 M3',  50.00,  200.00, '个', 'warning', '需尽快补料', NOW(), NOW()),
 (2, 'MAT-002', '标准外壳 B',  560.00,  200.00, '件', 'normal',  '库存充足',   NOW(), NOW()),
 (3, 'MAT-003', '装配胶水',     18.00,   30.00, '瓶', 'warning', '采购在途',   NOW(), NOW());
+
+-- BOM（精密组件C）
+INSERT INTO mdm_bom (id, product_id, version, status, is_default, remark, created_time, updated_time) VALUES
+(1, 1, 'V1.0', 'active', 1, '精密组件C默认BOM', NOW(), NOW());
+
+INSERT INTO mdm_bom_item (bom_id, material_id, qty, unit, loss_rate, remark, created_time, updated_time) VALUES
+(1, 1, 4.0000, '个', 2.00, '紧固件', NOW(), NOW()),
+(1, 2, 1.0000, '件', 0.00, '外壳',   NOW(), NOW()),
+(1, 3, 0.5000, '瓶', 5.00, '胶水',   NOW(), NOW());
+
+-- 库存流水（演示）
+INSERT INTO inv_transaction (material_id, txn_type, qty, before_qty, after_qty, ref_type, ref_id, operator_id, remark, created_time) VALUES
+(1, 'in', 250.00, 0.00, 250.00, 'material', 1, 1, '期初入库', '2026-06-01 08:00:00'),
+(1, 'out', 200.00, 250.00, 50.00, 'manual', NULL, 4, '生产领用', '2026-06-28 14:00:00'),
+(2, 'in', 560.00, 0.00, 560.00, 'material', 2, 1, '期初入库', '2026-06-01 08:00:00');
 
 -- AI 客服示例记录
 INSERT INTO ai_chat_log (user_id, session_id, user_message, ai_response, bot_id, create_time) VALUES

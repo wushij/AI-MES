@@ -8,6 +8,7 @@ import AppThemePicker from './AppThemePicker.vue'
 import { useAppStore } from '@/stores/app'
 import { useUserStore } from '@/stores/user'
 import { useNotificationStore } from '@/stores/notifications'
+import { roleLabel as getRoleLabel } from '@/utils/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,10 +23,7 @@ const currentTitle = computed(() => {
 })
 
 const roleLabel = computed(() => {
-  if (userStore.isAdmin) return '管理员'
-  if (userStore.isSupervisor) return '车间主管'
-  if (userStore.isWorker) return '普通员工'
-  return '访客'
+  return getRoleLabel(userStore.role)
 })
 
 const activeTab = ref('unread')

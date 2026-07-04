@@ -37,7 +37,7 @@
       <el-table v-loading="loading" :data="plans" stripe border highlight-current-row :header-cell-style="tableHeaderStyle">
         <el-table-column label="计划编号" min-width="140" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" style="font-weight: 600;">{{ row.code }}</el-button>
+            <el-button link type="primary" style="font-weight: 600;" @click="goDetail(row)">{{ row.code }}</el-button>
           </template>
         </el-table-column>
         <el-table-column prop="productName" label="产品" min-width="180" show-overflow-tooltip align="center" />
@@ -52,8 +52,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="creatorName" label="创建人" min-width="100" align="center" />
-        <el-table-column label="操作" fixed="right" width="220" align="center">
+        <el-table-column label="操作" fixed="right" width="280" align="center">
           <template #default="{ row }">
+            <el-button size="small" class="action-btn action-btn--detail" @click="goDetail(row)">详情</el-button>
             <el-button size="small" class="action-btn action-btn--edit" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="row.status === 'draft'" size="small" class="action-btn action-btn--release" :loading="actionLoading === row.id" @click="releasePlan(row)">下发</el-button>
             <el-button size="small" class="action-btn action-btn--delete" :loading="actionLoading === `delete-${row.id}`" @click="removePlan(row)">删除</el-button>
@@ -98,12 +99,11 @@
         label-position="top"
         class="custom-plan-form"
       >
-        <el-form-item label="产品名称" prop="productName">
-          <el-input
-            v-model="formModel.productName"
-            maxlength="80"
-            placeholder="请输入待排产的产品名称"
-            class="custom-input"
+        <el-form-item label="产品" prop="productId">
+          <ProductSelect
+            v-model="formModel.productId"
+            placeholder="选择产品主数据"
+            @change="onProductChange"
           />
         </el-form-item>
 
@@ -150,6 +150,27 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="releasePreviewVisible" title="下发预览" width="560px">
+      <el-alert v-if="releasePreview?.bomWarning" :title="releasePreview.bomWarning" type="warning" show-icon :closable="false" class="preview-alert" />
+      <p v-if="releasePreview" class="preview-summary">
+        计划数量 <strong>{{ releasePreview.plan.planQty }}</strong> 件，按每单
+        <strong>{{ releasePreview.splitQty }}</strong> 件拆分，将生成
+        <strong>{{ releasePreview.workOrderCount }}</strong> 张工单：
+      </p>
+      <el-table v-if="releasePreview" :data="releasePreview.workOrders" border size="small" stripe>
+        <el-table-column prop="batchNo" label="批次" width="70" align="center" />
+        <el-table-column prop="productName" label="产品" min-width="140" />
+        <el-table-column prop="quantity" label="数量" width="90" align="center">
+          <template #default="{ row }">{{ row.quantity }} 件</template>
+        </el-table-column>
+        <el-table-column prop="deadline" label="交期" min-width="150" />
+      </el-table>
+      <template #footer>
+        <el-button @click="releasePreviewVisible = false">取消</el-button>
+        <el-button type="primary" :loading="actionLoading !== ''" @click="confirmRelease">确认下发</el-button>
+      </template>
+    </el-dialog>
+
   </div>
 
   <Forbidden v-else />
@@ -166,6 +187,8 @@ import type { FormInstance, FormRules } from 'element-plus'
 
 import { computed, onMounted, reactive, ref } from 'vue'
 
+import { useRouter } from 'vue-router'
+
 import { Calendar } from '@element-plus/icons-vue'
 
 import Forbidden from './Forbidden.vue'
@@ -173,12 +196,15 @@ import Forbidden from './Forbidden.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 import StatusTag from '@/components/common/StatusTag.vue'
+import ProductSelect from '@/components/common/ProductSelect.vue'
 
 import { useUserStore } from '@/stores/user'
 
 interface PlanRow { id: string | number; code: string; productName: string; quantity: number; planDate: string; workOrderCount: number; status: string; creatorName: string; remark?: string }
 
 const userStore = useUserStore()
+
+const router = useRouter()
 
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600' }
 
@@ -196,6 +222,10 @@ const dialogMode = ref<'create' | 'edit'>('create')
 
 const editingId = ref<string | number | null>(null)
 
+const releasePreviewVisible = ref(false)
+const releasePreview = ref<import('@/api/plans').ReleasePreview | null>(null)
+const releasingPlanId = ref<string | number | null>(null)
+
 const formRef = ref<FormInstance>()
 
 const isSupervisor = computed(() => userStore.isAdmin || userStore.isSupervisor)
@@ -203,9 +233,14 @@ const isSupervisor = computed(() => userStore.isAdmin || userStore.isSupervisor)
 const filters = reactive({ keyword: '', status: '', dateRange: [] as string[] })
 const pagination = reactive({ page: 1, size: 10, total: 0 })
 
-const formModel = reactive({ productName: '', quantity: 1, planDate: '', remark: '' })
+const formModel = reactive({ productId: undefined as number | string | undefined, productName: '', quantity: 1, planDate: '', remark: '' })
 
-const rules: FormRules = { productName: [{ required: true, message: '请输入产品名称', trigger: 'blur' }], quantity: [{ required: true, message: '请输入数量', trigger: 'change' }], planDate: [{ required: true, message: '请选择日期', trigger: 'change' }, { validator: (_, value, callback) => { if (!value) return callback(); if (value < currentDate()) callback(new Error('计划日期不能早于今天')); else callback() }, trigger: 'change' }] }
+const rules: FormRules = { productId: [{ required: true, message: '请选择产品', trigger: 'change' }], quantity: [{ required: true, message: '请输入数量', trigger: 'change' }], planDate: [{ required: true, message: '请选择日期', trigger: 'change' }, { validator: (_, value, callback) => { if (!value) return callback(); if (value < currentDate()) callback(new Error('计划日期不能早于今天')); else callback() }, trigger: 'change' }] }
+
+function onProductChange(payload: { productId?: number | string; productName: string }) {
+  formModel.productId = payload.productId
+  formModel.productName = payload.productName
+}
 
 onMounted(() => { if (isSupervisor.value) loadPlans() })
 
@@ -255,23 +290,41 @@ async function loadPlans() {
   }
 }
 
-function openCreate() { dialogMode.value = 'create'; editingId.value = null; Object.assign(formModel, { productName: '', quantity: 1, planDate: currentDate(), remark: '' }); dialogVisible.value = true }
+function openCreate() { dialogMode.value = 'create'; editingId.value = null; Object.assign(formModel, { productId: undefined, productName: '', quantity: 1, planDate: currentDate(), remark: '' }); dialogVisible.value = true }
+
+function goDetail(row: PlanRow) {
+  router.push(`/plans/${row.id}`)
+}
 
 function openEdit(row: PlanRow) { dialogMode.value = 'edit'; editingId.value = row.id; Object.assign(formModel, { productName: row.productName, quantity: row.quantity, planDate: row.planDate, remark: row.remark ?? '' }); dialogVisible.value = true }
 
-async function submitForm() { const valid = await formRef.value?.validate().catch(() => false); if (!valid) return; saving.value = true; try { const api = await import('@/api/plans'); const payload = { productName: formModel.productName, planQty: formModel.quantity, planDate: formModel.planDate, remark: formModel.remark }; if (dialogMode.value === 'create') { await api.createPlan(payload); ElMessage.success('计划已创建') } else if (editingId.value != null) { await api.updatePlan(editingId.value, payload); ElMessage.success('计划已更新') } dialogVisible.value = false; loadPlans() } catch (error) { console.error(error); ElMessage.error('保存计划失败') } finally { saving.value = false } }
+async function submitForm() { const valid = await formRef.value?.validate().catch(() => false); if (!valid) return; saving.value = true; try { const api = await import('@/api/plans'); const payload = { productId: formModel.productId, productName: formModel.productName, planQty: formModel.quantity, planDate: formModel.planDate, remark: formModel.remark }; if (dialogMode.value === 'create') { await api.createPlan(payload); ElMessage.success('计划已创建') } else if (editingId.value != null) { await api.updatePlan(editingId.value, payload); ElMessage.success('计划已更新') } dialogVisible.value = false; loadPlans() } catch (error) { console.error(error); ElMessage.error('保存计划失败') } finally { saving.value = false } }
 
 async function releasePlan(row: PlanRow) {
-  await ElMessageBox.confirm(`确认下发计划 ${row.code}？下发后将生成工单。`, '确认下发', { type: 'warning' })
-  actionLoading.value = row.id
+  releasingPlanId.value = row.id
   try {
     const api = await import('@/api/plans')
-    const result = await api.releasePlan(row.id) as {
-      plan?: { status?: string; workOrderCount?: number; planNo?: string }
+    releasePreview.value = await api.previewPlanRelease(row.id)
+    releasePreviewVisible.value = true
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('加载下发预览失败')
+  }
+}
+
+async function confirmRelease() {
+  if (releasingPlanId.value == null) return
+  actionLoading.value = releasingPlanId.value
+  try {
+    const api = await import('@/api/plans')
+    const result = await api.releasePlan(releasingPlanId.value) as {
+      generatedWorkOrders?: Array<{ orderNo?: string }>
       generatedWorkOrder?: { orderNo?: string }
     }
-    const orderNo = result?.generatedWorkOrder?.orderNo
-    ElMessage.success(orderNo ? `计划已下发，已生成工单 ${orderNo}` : '计划已下发')
+    const orders = result?.generatedWorkOrders ?? []
+    const count = orders.length || (result?.generatedWorkOrder ? 1 : 0)
+    ElMessage.success(count > 1 ? `计划已下发，已生成 ${count} 张工单` : `计划已下发，已生成工单 ${orders[0]?.orderNo ?? result?.generatedWorkOrder?.orderNo ?? ''}`)
+    releasePreviewVisible.value = false
     await loadPlans()
   } catch (error) {
     console.error(error)
@@ -281,6 +334,7 @@ async function releasePlan(row: PlanRow) {
       : message.length > 80 ? '下发计划失败，请查看控制台或联系管理员' : message)
   } finally {
     actionLoading.value = ''
+    releasingPlanId.value = null
   }
 }
 
@@ -369,6 +423,15 @@ function currentDate() { const now = new Date(); return `${now.getFullYear()}-${
   font-weight: 500 !important;
   transition: all 0.2s ease !important;
   background: #fff !important;
+}
+
+.action-btn--detail {
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+  color: #3b82f6 !important;
+}
+.action-btn--detail:hover {
+  background: rgba(59, 130, 246, 0.05) !important;
+  border-color: #3b82f6 !important;
 }
 
 .action-btn--edit {

@@ -82,12 +82,52 @@ export function isAbortError(error: unknown) {
 export function normalizeRequestError(error: AxiosError<ApiResult>): ApiRequestError {
   const apiCode = error.response?.data?.code
   const httpStatus = error.response?.status
-  const message = error.response?.data?.message || error.message || '网络异常，请重试'
+  
+  let message = error.response?.data?.message
+  
+  if (!message) {
+    if (error.message === 'Network Error') {
+      message = '网络连接失败，请检查您的网络连接或后端服务是否已启动'
+    } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      message = '请求超时，请稍后重试'
+    } else if (httpStatus) {
+      switch (httpStatus) {
+        case 400:
+          message = '请求参数错误 (400)'
+          break
+        case 401:
+          message = '登录状态已失效，请重新登录 (401)'
+          break
+        case 403:
+          message = '您暂无权限进行此操作 (403)'
+          break
+        case 404:
+          message = '请求的资源或接口不存在 (404)'
+          break
+        case 405:
+          message = '请求方法不允许 (405)'
+          break
+        case 500:
+          message = '服务器内部错误，请联系管理员 (500)'
+          break
+        case 502:
+        case 503:
+        case 504:
+          message = '网络网关异常或服务器正在维护，请稍后重试 (502/503/504)'
+          break
+        default:
+          message = `服务器响应异常 (HTTP ${httpStatus})`
+      }
+    } else {
+      message = error.message || '未知网络异常，请重试'
+    }
+  }
+
   return createApiError(message, apiCode, httpStatus)
 }
 
 function isUnauthorizedStatus(status?: number) {
-  return status === 401 || status === 403
+  return status === 401
 }
 
 const request = axios.create({
@@ -111,7 +151,7 @@ request.interceptors.response.use(
   (response) => {
     const cfg = response.config as ExtendedRequestConfig
     const body = response.data as ApiResult | unknown
-    if (body && typeof body === 'object' && 'code' in body && 'data' in body) {
+    if (body && typeof body === 'object' && 'code' in body) {
       const result = body as ApiResult
       if (result.code !== 200) {
         if (isUnauthorizedStatus(result.code) && !cfg.skipUnauthorizedRedirect) {
@@ -124,7 +164,9 @@ request.interceptors.response.use(
         }
         return Promise.reject(createApiError(result.message || '请求失败', result.code, response.status))
       }
-      response.data = result.data
+      if ('data' in result) {
+        response.data = result.data
+      }
     }
     if (typeof body === 'string' && body.trimStart().startsWith('<')) {
       return Promise.reject(createApiError('服务返回异常页面，请确认后端已启动', undefined, response.status))

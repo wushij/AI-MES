@@ -49,6 +49,12 @@
             <el-tag size="small" :type="deviceStatusTagType(row.status)">{{ row.statusLabel ?? deviceStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="todayAlertCount" label="今日报警" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="(row.todayAlertCount ?? 0) > 0" type="danger" size="small" effect="dark">{{ row.todayAlertCount }}</el-tag>
+            <span v-else class="text-muted">0</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" fixed="right" width="220" align="center">
           <template #default="{ row }">
             <div class="table-actions">
@@ -61,8 +67,8 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogMode === 'create' ? '新建设备' : '编辑设备'" width="640px">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="88px">
+    <el-dialog v-model="dialogVisible" :title="dialogMode === 'create' ? '新建设备' : '编辑设备'" width="640px" class="device-form-dialog">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="88px" class="device-form">
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="设备编号"><el-input v-model="form.deviceCode" placeholder="留空自动生成" /></el-form-item>
@@ -105,6 +111,16 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
+            <el-form-item label="购买日期">
+              <el-date-picker v-model="form.purchaseDate" type="date" value-format="YYYY-MM-DD" class="full-width" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="安装日期">
+              <el-date-picker v-model="form.installDate" type="date" value-format="YYYY-MM-DD" class="full-width" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
             <el-form-item label="启用日期">
               <el-date-picker v-model="form.enableDate" type="date" value-format="YYYY-MM-DD" class="full-width" />
             </el-form-item>
@@ -115,7 +131,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="24">
-            <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="备注" class="form-item--textarea"><el-input v-model="form.remark" type="textarea" :rows="2" class="full-width" /></el-form-item>
           </el-col>
         </el-row>
       </el-form>
@@ -125,20 +141,63 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="categoryDialogVisible" title="设备分类管理" width="520px">
+    <el-dialog v-model="categoryDialogVisible" title="设备分类管理" width="640px">
       <div class="category-toolbar">
-        <el-input v-model="categoryForm.categoryName" placeholder="新分类名称" style="flex:1" />
+        <el-tree-select
+          v-model="categoryForm.parentId"
+          :data="categoryTreeOptions"
+          :props="{ label: 'categoryName', value: 'id', children: 'children' }"
+          check-strictly
+          placeholder="父分类"
+          class="category-parent-select"
+        />
+        <el-input v-model="categoryForm.categoryName" placeholder="分类名称" class="category-name-input" />
+        <el-input-number v-model="categoryForm.sortNo" :min="0" :max="999" controls-position="right" class="category-sort-input" />
         <el-button type="primary" :loading="categorySubmitting" @click="submitCategory">添加</el-button>
       </div>
-      <el-table :data="flatCategories" stripe border size="small" class="category-table" :header-cell-style="categoryTableHeaderStyle">
-        <el-table-column prop="categoryName" label="分类名称" align="center" />
-        <el-table-column prop="sortNo" label="排序" width="70" align="center" />
-        <el-table-column label="操作" width="90" align="center">
-          <template #default="{ row }">
-            <el-button size="small" class="cat-delete-btn" @click="removeCategory(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <el-tree
+        :data="categoryTree"
+        :props="{ label: 'categoryName', children: 'children' }"
+        node-key="id"
+        default-expand-all
+        class="category-tree"
+      >
+        <template #default="{ data }">
+          <div class="category-tree-node">
+            <span class="category-tree-node__name">{{ data.categoryName }}</span>
+            <span class="category-tree-node__sort">排序 {{ data.sortNo ?? 0 }}</span>
+            <div class="category-tree-node__actions">
+              <el-button size="small" link type="primary" @click.stop="openEditCategory(data)">编辑</el-button>
+              <el-button size="small" link type="danger" @click.stop="removeCategory(data)">删除</el-button>
+            </div>
+          </div>
+        </template>
+      </el-tree>
+    </el-dialog>
+
+    <el-dialog v-model="categoryEditVisible" title="编辑分类" width="480px" append-to-body>
+      <el-form label-width="80px">
+        <el-form-item label="父分类">
+          <el-tree-select
+            v-model="categoryEditForm.parentId"
+            :data="categoryEditTreeOptions"
+            :props="{ label: 'categoryName', value: 'id', children: 'children' }"
+            check-strictly
+            placeholder="根分类"
+            class="full-width"
+          />
+        </el-form-item>
+        <el-form-item label="分类名称">
+          <el-input v-model="categoryEditForm.categoryName" />
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="categoryEditForm.sortNo" :min="0" :max="999" class="full-width" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="categoryEditVisible = false">取消</el-button>
+        <el-button type="primary" :loading="categoryEditSubmitting" @click="submitEditCategory">保存</el-button>
+      </template>
     </el-dialog>
 
     <!-- 设备详情弹窗 -->
@@ -156,7 +215,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import {
   createDevice, createDeviceCategory, deleteDevice, deleteDeviceCategory,
-  getDeviceFormOptions, getDeviceCategories, getDeviceSummary, getDevices, updateDevice,
+  getDeviceFormOptions, getDeviceCategories, getDeviceSummary, getDevices, updateDevice, updateDeviceCategory,
   type DeviceCategoryItem, type DeviceItem, type DeviceSummary
 } from '@/api/devices'
 import { DEVICE_STATUSES, deviceStatusLabel, deviceStatusTagType } from '@/utils/deviceLabels'
@@ -164,34 +223,56 @@ import DeviceDetail from './DeviceDetail.vue'
 
 const router = useRouter()
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600', textAlign: 'center' as const }
-const categoryTableHeaderStyle = { background: '#F5F7FA', fontWeight: '600', textAlign: 'center' }
 const loading = ref(false)
 const submitting = ref(false)
 const deletingId = ref<string | number | null>(null)
 const devices = ref<DeviceItem[]>([])
 const summary = ref<DeviceSummary | null>(null)
-const flatCategories = ref<DeviceCategoryItem[]>([])
 const teamOptions = ref<Array<{ id: string | number; teamName: string }>>([])
 const managerOptions = ref<Array<{ id: string | number; realName: string }>>([])
 const dialogVisible = ref(false)
 const categoryDialogVisible = ref(false)
+const categoryEditVisible = ref(false)
 const categorySubmitting = ref(false)
+const categoryEditSubmitting = ref(false)
+const categoryTree = ref<DeviceCategoryItem[]>([])
 const dialogMode = ref<'create' | 'edit'>('create')
 const editingId = ref<string | number | null>(null)
 const detailDialogVisible = ref(false)
 const activeDeviceId = ref<string | number | null>(null)
 const formRef = ref<FormInstance>()
-const categoryForm = reactive({ categoryName: '', parentId: 0, sortNo: 0 })
+const categoryForm = reactive({ categoryName: '', parentId: 0 as number | string, sortNo: 0 })
+const categoryEditForm = reactive({ id: 0 as number | string, categoryName: '', parentId: 0 as number | string, sortNo: 0 })
 
 const filters = reactive({ keyword: '', status: '', categoryId: undefined as number | string | undefined })
 const form = reactive({
   deviceCode: '', deviceName: '', categoryId: undefined as number | string | undefined,
   brand: '', model: '', serialNumber: '', workshop: '', lineName: '', station: '',
   managerId: undefined as number | string | undefined, teamId: undefined as number | string | undefined,
-  enableDate: '', warrantyDate: '', status: 'idle', remark: ''
+  purchaseDate: '', installDate: '', enableDate: '', warrantyDate: '', status: 'idle', remark: ''
 })
 
 const rules: FormRules = { deviceName: [{ required: true, message: '请输入设备名称', trigger: 'blur' }] }
+
+const flatCategories = computed(() => flattenCategories(categoryTree.value))
+
+const categoryTreeOptions = computed(() => [
+  { id: 0, categoryName: '根分类', children: categoryTree.value }
+])
+
+const categoryEditTreeOptions = computed(() => {
+  const excludeId = categoryEditForm.id
+  return [{ id: 0, categoryName: '根分类', children: filterCategoryTree(categoryTree.value, excludeId) }]
+})
+
+function filterCategoryTree(items: DeviceCategoryItem[], excludeId: number | string): DeviceCategoryItem[] {
+  return items
+    .filter((item) => item.id !== excludeId)
+    .map((item) => ({
+      ...item,
+      children: item.children?.length ? filterCategoryTree(item.children, excludeId) : undefined
+    }))
+}
 
 const summaryCards = computed(() => {
   if (!summary.value) return []
@@ -229,7 +310,6 @@ async function loadSummary() {
 async function loadFormOptions() {
   try {
     const data = await getDeviceFormOptions()
-    flatCategories.value = data.categories ?? []
     teamOptions.value = data.teams ?? []
     managerOptions.value = data.managers ?? []
   } catch (error) {
@@ -239,8 +319,7 @@ async function loadFormOptions() {
 
 async function loadCategories() {
   try {
-    const tree = await getDeviceCategories()
-    flatCategories.value = flattenCategories(tree)
+    categoryTree.value = await getDeviceCategories()
   } catch (error) {
     console.error(error)
   }
@@ -266,7 +345,7 @@ function resetForm() {
   Object.assign(form, {
     deviceCode: '', deviceName: '', categoryId: undefined, brand: '', model: '',
     serialNumber: '', workshop: '', lineName: '', station: '', managerId: undefined, teamId: undefined,
-    enableDate: '', warrantyDate: '', status: 'idle', remark: ''
+    purchaseDate: '', installDate: '', enableDate: '', warrantyDate: '', status: 'idle', remark: ''
   })
 }
 
@@ -284,7 +363,8 @@ function openEdit(row: DeviceItem) {
     deviceCode: row.deviceCode, deviceName: row.deviceName, categoryId: row.categoryId,
     brand: row.brand ?? '', model: row.model ?? '', serialNumber: row.serialNumber ?? '', workshop: row.workshop ?? '',
     lineName: row.lineName ?? '', station: row.station ?? '', managerId: row.managerId,
-    teamId: row.teamId, enableDate: row.enableDate ?? '', warrantyDate: row.warrantyDate ?? '', status: row.status ?? 'idle', remark: row.remark ?? ''
+    teamId: row.teamId, purchaseDate: row.purchaseDate ?? '', installDate: row.installDate ?? '',
+    enableDate: row.enableDate ?? '', warrantyDate: row.warrantyDate ?? '', status: row.status ?? 'idle', remark: row.remark ?? ''
   })
   dialogVisible.value = true
 }
@@ -333,11 +413,20 @@ async function removeDevice(row: DeviceItem) {
 }
 
 async function submitCategory() {
-  if (!categoryForm.categoryName.trim()) return
+  if (!categoryForm.categoryName.trim()) {
+    ElMessage.warning('请输入分类名称')
+    return
+  }
   categorySubmitting.value = true
   try {
-    await createDeviceCategory({ categoryName: categoryForm.categoryName.trim(), parentId: 0, sortNo: flatCategories.value.length + 1 })
+    await createDeviceCategory({
+      categoryName: categoryForm.categoryName.trim(),
+      parentId: categoryForm.parentId || 0,
+      sortNo: categoryForm.sortNo
+    })
     categoryForm.categoryName = ''
+    categoryForm.parentId = 0
+    categoryForm.sortNo = 0
     await loadCategories()
     ElMessage.success('分类已添加')
   } catch (error) {
@@ -345,6 +434,37 @@ async function submitCategory() {
     ElMessage.error('添加分类失败')
   } finally {
     categorySubmitting.value = false
+  }
+}
+
+function openEditCategory(row: DeviceCategoryItem) {
+  categoryEditForm.id = row.id
+  categoryEditForm.categoryName = row.categoryName
+  categoryEditForm.parentId = row.parentId ?? 0
+  categoryEditForm.sortNo = row.sortNo ?? 0
+  categoryEditVisible.value = true
+}
+
+async function submitEditCategory() {
+  if (!categoryEditForm.categoryName.trim()) {
+    ElMessage.warning('请输入分类名称')
+    return
+  }
+  categoryEditSubmitting.value = true
+  try {
+    await updateDeviceCategory(categoryEditForm.id, {
+      categoryName: categoryEditForm.categoryName.trim(),
+      parentId: categoryEditForm.parentId || 0,
+      sortNo: categoryEditForm.sortNo
+    })
+    categoryEditVisible.value = false
+    await loadCategories()
+    ElMessage.success('分类已更新')
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('更新分类失败')
+  } finally {
+    categoryEditSubmitting.value = false
   }
 }
 
@@ -516,29 +636,73 @@ onMounted(async () => {
 .full-width {
   width: 100%;
 }
+
+.device-form :deep(.el-textarea__inner) {
+  border-radius: 20px !important;
+  border: none !important;
+  padding: 10px 16px !important;
+  box-shadow: 0 0 0 1px #e2e8f0 inset !important;
+  background-color: #fff !important;
+  resize: none;
+}
+
+.device-form :deep(.el-textarea__inner:hover) {
+  box-shadow: 0 0 0 1px #a5b4fc inset !important;
+}
+
+.device-form :deep(.el-textarea__inner:focus) {
+  box-shadow:
+    0 0 0 1px #4f46e5 inset,
+    0 0 0 3px rgba(79, 70, 229, 0.12) !important;
+  outline: none !important;
+}
+
 .category-toolbar {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
 }
-.category-table {
-  margin-top: 8px;
+.category-parent-select {
+  width: 160px;
 }
-.cat-delete-btn {
-  border-radius: 20px !important;
-  padding: 4px 14px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  height: 26px !important;
-  background: #fff !important;
-  color: #ef4444 !important;
-  border: 1.5px solid #fecaca !important;
-  transition: all 0.2s ease !important;
+.category-name-input {
+  flex: 1;
+  min-width: 140px;
 }
-.cat-delete-btn:hover {
-  background: #fee2e2 !important;
-  color: #b91c1c !important;
-  border-color: #fca5a5 !important;
+.category-sort-input {
+  width: 110px;
+}
+.category-tree {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.category-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding-right: 8px;
+}
+.category-tree-node__name {
+  font-weight: 600;
+  color: #334155;
+}
+.category-tree-node__sort {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.category-tree-node__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.text-muted {
+  color: #94a3b8;
 }
 .main-table :deep(.el-table__header .cell) {
   text-align: center;

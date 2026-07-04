@@ -45,10 +45,10 @@
             <el-button size="small" @click="addOperation">添加工序</el-button>
           </div>
           <el-table :data="form.operations" border stripe>
-            <el-table-column prop="seqNo" label="序号" width="70" align="center" />
-            <el-table-column prop="operationCode" label="工序编号" width="120" />
-            <el-table-column prop="operationName" label="工序名称" min-width="140" />
-            <el-table-column label="标准工时" width="110" align="center">
+            <el-table-column prop="seqNo" label="序号" width="70" align="center" header-align="center" />
+            <el-table-column prop="operationCode" label="工序编号" width="120" align="center" header-align="center" />
+            <el-table-column prop="operationName" label="工序名称" min-width="140" align="center" header-align="center" show-overflow-tooltip />
+            <el-table-column label="标准工时" width="110" align="center" header-align="center">
               <template #default="{ row }">
                 <span class="standard-hours-text">{{ row.standardHours ?? 0 }}h</span>
                 <div v-if="row.prepHours > 0 || row.changeoverHours > 0" class="extra-hours-text">
@@ -56,7 +56,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="绑定" width="210">
+            <el-table-column label="绑定" width="210" align="center" header-align="center">
               <template #default="{ row }">
                 <div class="bind-badges">
                   <span class="bind-badge device" :class="{ active: getBindCount(row, 'device') > 0 }">
@@ -71,7 +71,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="380" fixed="right" align="center">
+            <el-table-column label="操作" width="380" fixed="right" align="center" header-align="center">
               <template #default="{ row, $index }">
                 <div class="table-actions-flex">
                   <el-button size="small" class="op-pill-btn btn-edit" @click="openOpEdit(row, $index)">编辑</el-button>
@@ -802,6 +802,7 @@ onMounted(async () => {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  justify-content: center;
 }
 .bind-badge {
   display: inline-flex;

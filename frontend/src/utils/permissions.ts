@@ -1,7 +1,7 @@
 export const ALL_PERMISSIONS = [
   '生产计划', '工单管理', '班组', '物料', '设备', '排产', '工艺管理', '工艺审批',
   '工序进度', '工单反馈', '异常上报', 'AI 客服',
-  '用户管理', '角色管理', 'Coze 配置', '系统配置'
+  '用户管理', '角色管理', 'Coze 配置', '系统配置', '产品管理'
 ] as const
 
 export type AppPermission = (typeof ALL_PERMISSIONS)[number]

@@ -65,8 +65,8 @@ async function submit() {
     ElMessage.success('登录成功')
     const redirect = route.query.redirect as string | undefined
     await router.replace(redirect && redirect.startsWith('/') ? redirect : '/dashboard')
-  } catch {
-    ElMessage.error('登录失败，请检查账号、密码或验证码')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '登录失败，请检查账号、密码或验证码')
     await syncCaptchaState()
   } finally {
     loading.value = false
@@ -192,11 +192,15 @@ onMounted(() => {
         <div class="auth-demo">
           <span class="auth-demo__label">演示账号</span>
           <div class="auth-demo__accounts">
-            <el-button text @click="fillAccount('admin')">admin</el-button>
-            <el-button text @click="fillAccount('supervisor')">supervisor</el-button>
-            <el-button text @click="fillAccount('planner')">planner</el-button>
-            <el-button text @click="fillAccount('engineer')">engineer</el-button>
-            <el-button text @click="fillAccount('worker')">worker</el-button>
+            <div class="accounts-row">
+              <el-button text @click="fillAccount('admin')">admin</el-button>
+              <el-button text @click="fillAccount('supervisor')">supervisor</el-button>
+              <el-button text @click="fillAccount('planner')">planner</el-button>
+            </div>
+            <div class="accounts-row">
+              <el-button text @click="fillAccount('engineer')">engineer</el-button>
+              <el-button text @click="fillAccount('worker')">worker</el-button>
+            </div>
           </div>
         </div>
       </section>
@@ -543,7 +547,7 @@ onMounted(() => {
   margin-top: 24px;
   padding-top: 18px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   color: #64748b;
   font-size: 13px;
@@ -556,21 +560,20 @@ onMounted(() => {
   font-weight: 600;
   letter-spacing: 0.5px;
   color: #94a3b8;
+  margin-top: 8px;
 }
 
 .auth-demo__accounts {
   display: flex;
-  flex: 1;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  white-space: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  flex: 1;
 }
 
-.auth-demo__accounts::-webkit-scrollbar {
-  display: none;
+.accounts-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .auth-demo__accounts :deep(.el-button) {

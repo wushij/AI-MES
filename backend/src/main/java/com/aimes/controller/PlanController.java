@@ -61,6 +61,12 @@ public class PlanController {
         return Result.ok("删除成功", null);
     }
 
+    @GetMapping("/{id}/release-preview")
+    @SaCheckPermission("生产计划")
+    public Result<Map<String, Object>> releasePreview(@PathVariable Long id) {
+        return Result.ok(planService.previewRelease(id));
+    }
+
     @PostMapping("/{id}/release")
     @SaCheckPermission("生产计划")
     public Result<Map<String, Object>> release(@PathVariable Long id) {

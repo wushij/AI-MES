@@ -1,6 +1,8 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
+import com.aimes.common.OperationLog;
+import com.aimes.common.OperationLogRunner;
 import com.aimes.dto.Requests.SchedulingApplyRequest;
 import com.aimes.dto.Requests.SchedulingDispatchItem;
 import com.aimes.dto.Requests.SchedulingPriorityItem;
@@ -8,6 +10,7 @@ import com.aimes.dto.Requests.WorkOrderAssignRequest;
 import com.aimes.dto.Requests.WorkOrderCreateRequest;
 import com.aimes.dto.Requests.WorkOrderProgressRequest;
 import com.aimes.dto.Requests.WorkOrderUpdateRequest;
+import com.aimes.config.AimesProperties;
 import com.aimes.entity.ExcEvent;
 import com.aimes.entity.ProdPlan;
 import com.aimes.entity.ProdProcessRecord;
@@ -51,6 +54,10 @@ public class WorkOrderService {
     private final SysNotificationService sysNotificationService;
     private final SysUserMapper sysUserMapper;
     private final ProcessRouteService processRouteService;
+    private final OperationLogRunner operationLogRunner;
+    private final ProductService productService;
+    private final MaterialService materialService;
+    private final AimesProperties aimesProperties;
 
     public WorkOrderService(ProdWorkOrderMapper prodWorkOrderMapper,
                             ProdPlanMapper prodPlanMapper,
@@ -61,7 +68,11 @@ public class WorkOrderService {
                             WorkOrderNoService workOrderNoService,
                             SysNotificationService sysNotificationService,
                             SysUserMapper sysUserMapper,
-                            ProcessRouteService processRouteService) {
+                            ProcessRouteService processRouteService,
+                            OperationLogRunner operationLogRunner,
+                            ProductService productService,
+                            MaterialService materialService,
+                            AimesProperties aimesProperties) {
         this.prodWorkOrderMapper = prodWorkOrderMapper;
         this.prodPlanMapper = prodPlanMapper;
         this.prodTeamMapper = prodTeamMapper;
@@ -72,6 +83,10 @@ public class WorkOrderService {
         this.sysNotificationService = sysNotificationService;
         this.sysUserMapper = sysUserMapper;
         this.processRouteService = processRouteService;
+        this.operationLogRunner = operationLogRunner;
+        this.productService = productService;
+        this.materialService = materialService;
+        this.aimesProperties = aimesProperties;
     }
 
     public Map<String, Object> list(long current, long size, String keyword, String status, Long teamId) {
@@ -103,6 +118,12 @@ public class WorkOrderService {
         detail.put("exceptions", excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
                 .eq(ExcEvent::getWorkOrderId, id)
                 .orderByDesc(ExcEvent::getOccurTime)));
+        if (order.getProductId() != null) {
+            detail.put("product", productService.getProductSummary(order.getProductId()));
+            int qty = order.getOrderQty() != null ? order.getOrderQty() : 1;
+            detail.put("bomPreview", productService.computeBomDemand(order.getProductId(), qty));
+            detail.put("hasBom", productService.hasActiveBom(order.getProductId()));
+        }
         return detail;
     }
 
@@ -111,17 +132,18 @@ public class WorkOrderService {
         ProdWorkOrder order = new ProdWorkOrder();
         order.setOrderNo(StringUtils.hasText(request.getOrderNo()) ? request.getOrderNo() : workOrderNoService.nextOrderNo());
         order.setPlanId(request.getPlanId());
-        order.setProductName(request.getProductName());
+        applyProduct(order, request.getProductId(), request.getProductName());
+        order.setOrderQty(request.getOrderQty() != null ? request.getOrderQty() : 1);
         order.setTeamId(request.getTeamId());
-        order.setProcessName(defaultFirstProcess(request.getProductName()));
-        processRouteService.applyRoutingToWorkOrder(order, request.getProductName());
+        order.setProcessName(defaultFirstProcess(order.getProductId(), order.getProductName()));
+        processRouteService.applyRoutingToWorkOrder(order, order.getProductId(), order.getProductName());
         order.setProgress(request.getProgress() == null ? 0 : request.getProgress());
         order.setStatus(StringUtils.hasText(request.getStatus()) ? request.getStatus() : (request.getTeamId() == null ? "pending" : "assigned"));
         order.setPriority(request.getPriority() == null ? 2 : request.getPriority());
         order.setDeadline(request.getDeadline());
         order.setRemark(request.getRemark());
         prodWorkOrderMapper.insert(order);
-        initProcessRecords(order.getId(), order.getProductName());
+        processRouteService.initProcessRecords(order.getId(), order.getProductId(), order.getProductName());
         return detail(order.getId());
     }
 
@@ -131,8 +153,11 @@ public class WorkOrderService {
         if (request.getPlanId() != null) {
             order.setPlanId(request.getPlanId());
         }
-        if (StringUtils.hasText(request.getProductName())) {
-            order.setProductName(request.getProductName());
+        if (request.getProductId() != null || StringUtils.hasText(request.getProductName())) {
+            applyProduct(order, request.getProductId(), request.getProductName());
+        }
+        if (request.getOrderQty() != null) {
+            order.setOrderQty(request.getOrderQty());
         }
         if (request.getTeamId() != null) {
             order.setTeamId(request.getTeamId());
@@ -160,7 +185,12 @@ public class WorkOrderService {
     }
 
     @Transactional
+    @OperationLog(module = "工单管理", action = "删除")
     public void delete(Long id) {
+        operationLogRunner.runVoid("工单管理", "删除", "delete", new Object[]{id}, () -> deleteInternal(id));
+    }
+
+    private void deleteInternal(Long id) {
         ProdWorkOrder order = getOrder(id);
         Long workOrderId = order.getId();
         String orderNo = order.getOrderNo();
@@ -174,7 +204,13 @@ public class WorkOrderService {
     }
 
     @Transactional
+    @OperationLog(module = "工单管理", action = "派工")
     public Map<String, Object> assign(Long id, WorkOrderAssignRequest request) {
+        return operationLogRunner.runUnchecked("工单管理", "派工", "assign", new Object[]{id, request},
+                () -> assignInternal(id, request));
+    }
+
+    private Map<String, Object> assignInternal(Long id, WorkOrderAssignRequest request) {
         ProdWorkOrder order = getOrder(id);
         order.setTeamId(request.getTeamId());
         order.setPriority(request.getPriority());
@@ -313,6 +349,12 @@ public class WorkOrderService {
                 plan.setStatus("completed");
                 prodPlanMapper.updateById(plan);
             }
+        }
+        if (aimesProperties.isBomPickOnComplete() && order.getProductId() != null
+                && productService.hasActiveBom(order.getProductId())) {
+            int qty = order.getOrderQty() != null ? order.getOrderQty() : 1;
+            var demand = productService.computeBomDemand(order.getProductId(), qty);
+            materialService.pickForWorkOrder(order.getId(), order.getProductId(), qty, demand);
         }
         return detail(id);
     }
@@ -558,13 +600,25 @@ public class WorkOrderService {
         return 2;
     }
 
-    private void initProcessRecords(Long workOrderId, String productName) {
-        processRouteService.initProcessRecords(workOrderId, productName);
+    private String defaultFirstProcess(Long productId, String productName) {
+        var operations = processRouteService.resolveRouting(productId, productName).operations();
+        return operations.isEmpty() ? "备料" : operations.get(0).getOperationName();
     }
 
-    private String defaultFirstProcess(String productName) {
-        var operations = processRouteService.resolveRouting(productName).operations();
-        return operations.isEmpty() ? "备料" : operations.get(0).getOperationName();
+    private void applyProduct(ProdWorkOrder order, Long productId, String productName) {
+        if (productId != null) {
+            var summary = productService.getProductSummary(productId);
+            order.setProductId(productId);
+            order.setProductName((String) summary.get("productName"));
+            return;
+        }
+        order.setProductName(productName);
+        var product = productService.findByName(productName);
+        if (product != null) {
+            order.setProductId(product.getId());
+        } else {
+            order.setProductId(null);
+        }
     }
 
     private Map<String, Object> toView(ProdWorkOrder order) {
@@ -579,7 +633,9 @@ public class WorkOrderService {
         view.put("orderNo", order.getOrderNo());
         view.put("planId", order.getPlanId());
         view.put("planNo", plan == null ? null : plan.getPlanNo());
+        view.put("productId", order.getProductId());
         view.put("productName", order.getProductName());
+        view.put("orderQty", order.getOrderQty());
         view.put("routingId", order.getRoutingId());
         view.put("routeVersion", order.getRouteVersion());
         view.put("teamId", order.getTeamId());

@@ -115,35 +115,40 @@ const sectionLabel = computed(() => props.section ?? (route.meta.section as stri
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
-.page-banner__actions :deep(.el-button) {
-  height: 28px;
-  padding: 0 12px;
-  border-color: rgba(255, 255, 255, 0.35);
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+.page-banner__actions :deep(.el-button:not(.el-button--primary)) {
+  height: 32px !important;
+  padding: 0 16px !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.75) !important;
+  background: transparent !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
 }
 
-.page-banner__actions :deep(.el-button:hover) {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
-  color: #fff;
+.page-banner__actions :deep(.el-button:not(.el-button--primary):hover),
+.page-banner__actions :deep(.el-button:not(.el-button--primary):focus) {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: #fff !important;
+  color: #fff !important;
 }
 
 .page-banner__actions :deep(.el-button--primary) {
-  background: #fff;
-  border-color: #fff;
-  color: var(--theme-primary, #010710);
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  background: #fff !important;
+  border-color: #fff !important;
+  color: var(--theme-primary, #0f172a) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22) !important;
 }
 
-.page-banner__actions :deep(.el-button--primary:hover) {
-  background: #f8fafc;
-  border-color: #fff;
-  color: var(--theme-primary, #010710);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+.page-banner__actions :deep(.el-button--primary:hover),
+.page-banner__actions :deep(.el-button--primary:focus) {
+  background: #f1f5f9 !important;
+  border-color: #fff !important;
+  color: var(--theme-primary, #0f172a) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28) !important;
+  transform: translateY(-1px);
 }
 </style>

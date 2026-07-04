@@ -15,6 +15,7 @@ public class MdmRouting {
     private Long id;
     private String routeCode;
     private String routeName;
+    private Long productId;
     private String productName;
     private String version;
     private String status;

@@ -60,6 +60,12 @@ public class MaterialController {
         return Result.ok(materialService.update(id, request));
     }
 
+    @GetMapping("/{id}/transactions")
+    @SaCheckPermission("物料")
+    public Result<List<Map<String, Object>>> transactions(@PathVariable Long id) {
+        return Result.ok(materialService.listTransactions(id));
+    }
+
     @DeleteMapping("/{id}")
     @SaCheckPermission("物料")
     public Result<Void> delete(@PathVariable Long id) {

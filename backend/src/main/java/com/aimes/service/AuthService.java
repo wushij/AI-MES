@@ -2,6 +2,8 @@ package com.aimes.service;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.aimes.common.BusinessException;
+import com.aimes.common.OperationLog;
+import com.aimes.common.OperationLogRunner;
 import com.aimes.dto.Requests.LoginRequest;
 import com.aimes.entity.ProdTeam;
 import com.aimes.entity.SysUser;
@@ -28,8 +30,14 @@ public class AuthService {
     private final CaptchaService captchaService;
     private final LoginProtectionService loginProtectionService;
     private final RoleService roleService;
+    private final OperationLogRunner operationLogRunner;
 
+    @OperationLog(module = "认证", action = "登录")
     public Map<String, Object> login(LoginRequest request) {
+        return operationLogRunner.runUnchecked("认证", "登录", "login", new Object[]{request}, () -> loginInternal(request));
+    }
+
+    private Map<String, Object> loginInternal(LoginRequest request) {
         String ip = ClientIpUtil.current();
         String username = request.getUsername().trim();
         loginProtectionService.checkAllowed(ip, username);

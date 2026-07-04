@@ -71,6 +71,29 @@ public class FileStorageService {
         }
     }
 
+    public String copySop(String sourceRelativePath) {
+        if (!StringUtils.hasText(sourceRelativePath)) {
+            throw new BusinessException("源文件路径无效");
+        }
+        try {
+            Path source = resolveUploadRoot().resolve(sourceRelativePath).normalize();
+            if (!source.startsWith(resolveUploadRoot()) || !Files.exists(source)) {
+                throw new BusinessException("源文件不存在");
+            }
+            Path sopDir = resolveUploadRoot().resolve("sop");
+            Files.createDirectories(sopDir);
+            String originalName = source.getFileName().toString();
+            String ext = extension(originalName);
+            String storedName = UUID.randomUUID() + (ext.isEmpty() ? "" : "." + ext);
+            Path target = sopDir.resolve(storedName);
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            return "sop/" + storedName;
+        } catch (IOException ex) {
+            log.error("SOP copy failed", ex);
+            throw new BusinessException("文件复制失败");
+        }
+    }
+
     public void delete(String relativePath) {
         if (!StringUtils.hasText(relativePath)) {
             return;

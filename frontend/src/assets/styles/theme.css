@@ -102,6 +102,24 @@ body {
   box-shadow: 0 0 0 1px var(--cd-border) inset !important;
 }
 
+.el-textarea__inner {
+  border: none !important;
+  background-color: #fff;
+  padding: 10px 16px !important;
+}
+
+.el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px var(--cd-primary-light) inset !important;
+}
+
+.el-textarea__inner:focus {
+  box-shadow:
+    0 0 0 1px var(--cd-primary) inset,
+    0 0 0 3px var(--theme-primary-muted),
+    0 0 12px var(--theme-primary-muted) !important;
+  outline: none !important;
+}
+
 .el-input__wrapper:hover,
 .el-select__wrapper:hover {
   box-shadow: 0 0 0 1px var(--cd-primary-light) inset !important;
@@ -113,6 +131,38 @@ body {
     0 0 0 1px var(--cd-primary) inset,
     0 0 0 3px var(--theme-primary-muted),
     0 0 12px var(--theme-primary-muted) !important;
+}
+
+/* Form fields: center displayed value */
+.el-form-item .el-select .el-select__selection {
+  flex: 1;
+  justify-content: center;
+}
+
+.el-form-item .el-select .el-select__selected-item,
+.el-form-item .el-select .el-select__placeholder {
+  text-align: center;
+}
+
+.el-form-item .el-input__inner,
+.el-form-item .el-textarea__inner,
+.el-input-number .el-input__inner {
+  text-align: center;
+}
+
+/* Textarea rows: vertically center label on the left */
+.el-form-item:has(.el-textarea),
+.el-form-item.form-item--textarea {
+  align-items: center !important;
+}
+
+.el-form-item:has(.el-textarea) .el-form-item__label,
+.el-form-item.form-item--textarea .el-form-item__label {
+  align-self: center !important;
+  height: auto !important;
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+  line-height: 1.5;
 }
 
 /* Input number: unified pill shell — inner wrapper must stay square */

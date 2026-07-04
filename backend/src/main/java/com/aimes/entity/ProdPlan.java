@@ -15,6 +15,7 @@ public class ProdPlan {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String planNo;
+    private Long productId;
     private String productName;
     private Integer planQty;
     private LocalDate planDate;

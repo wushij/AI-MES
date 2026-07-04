@@ -16,7 +16,9 @@ public class ProdWorkOrder {
     private Long id;
     private String orderNo;
     private Long planId;
+    private Long productId;
     private String productName;
+    private Integer orderQty;
     private Long teamId;
     private Long routingId;
     private String routeVersion;
@@ -34,3 +36,4 @@ public class ProdWorkOrder {
     private LocalDateTime createdTime;
     private LocalDateTime updatedTime;
 }
+

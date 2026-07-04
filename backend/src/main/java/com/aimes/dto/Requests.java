@@ -32,6 +32,7 @@ public final class Requests {
         private String planNo;
         @NotBlank(message = "产品名称不能为空")
         private String productName;
+        private Long productId;
         @NotNull(message = "计划数量不能为空")
         @Min(value = 1, message = "计划数量必须大于 0")
         private Integer planQty;
@@ -44,8 +45,11 @@ public final class Requests {
     @Data
     public static class WorkOrderCreateRequest {
         private Long planId;
+        private Long productId;
         @NotBlank(message = "产品名称不能为空")
         private String productName;
+        @Min(value = 1, message = "工单数量必须大于 0")
+        private Integer orderQty;
         private String orderNo;
         private Long teamId;
         private String processName;
@@ -64,7 +68,10 @@ public final class Requests {
     @Data
     public static class WorkOrderUpdateRequest {
         private Long planId;
+        private Long productId;
         private String productName;
+        @Min(value = 1, message = "工单数量必须大于 0")
+        private Integer orderQty;
         private Long teamId;
         private String processName;
         @Min(value = 0, message = "进度不能小于 0")
@@ -298,11 +305,12 @@ public final class Requests {
         private String routeCode;
         @NotBlank(message = "路线名称不能为空")
         private String routeName;
+        private Long productId;
         private String productName;
         private String remark;
         /** draft | submit | publish */
         private String saveMode;
-        @NotEmpty(message = "工序列表不能为空")
+        /** 可选；为空时仅保存路线元数据（草稿），不更新工序 */
         private List<ProcessOperationItem> operations;
     }
 
@@ -350,5 +358,52 @@ public final class Requests {
         private String minValue;
         private String maxValue;
         private String unit;
+    }
+
+    @Data
+    public static class ProductSaveRequest {
+        private String productCode;
+        @NotBlank(message = "产品名称不能为空")
+        private String productName;
+        private String spec;
+        private String unit;
+        private String status;
+        private String remark;
+    }
+
+    @Data
+    public static class BomSaveRequest {
+        private String version;
+        private String remark;
+        private List<BomItemRequest> items;
+
+        @Data
+        public static class BomItemRequest {
+            private Long materialId;
+            private Double qty;
+            private String unit;
+            private Double lossRate;
+            private String remark;
+        }
+    }
+
+    @Data
+    public static class InspectionSubmitRequest {
+        @NotNull(message = "工单ID不能为空")
+        private Long workOrderId;
+        @NotBlank(message = "工序名称不能为空")
+        private String processName;
+        @NotEmpty(message = "检验项不能为空")
+        private List<InspectionItemRequest> items;
+
+        @Data
+        public static class InspectionItemRequest {
+            private Long planId;
+            @NotBlank(message = "检验项名称不能为空")
+            private String itemName;
+            private String measuredValue;
+            private String result;
+            private String remark;
+        }
     }
 }

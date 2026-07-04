@@ -21,19 +21,19 @@ public class RoleService {
     private static final List<String> ALL_PERMISSIONS = List.of(
             "生产计划", "工单管理", "班组", "物料", "设备", "排产", "工艺管理", "工艺审批",
             "工序进度", "工单反馈", "异常上报", "AI 客服",
-            "用户管理", "角色管理", "Coze 配置", "系统配置"
+            "用户管理", "角色管理", "Coze 配置", "系统配置", "产品管理"
     );
 
     private static final List<String> DEFAULT_SUPERVISOR_PERMISSIONS = List.of(
-            "生产计划", "工单管理", "工单反馈", "班组", "物料", "设备", "排产", "异常上报", "AI 客服", "工艺管理"
+            "生产计划", "工单管理", "工单反馈", "班组", "物料", "设备", "排产", "异常上报", "AI 客服", "工艺管理", "产品管理"
     );
 
     private static final List<String> DEFAULT_PLANNER_PERMISSIONS = List.of(
-            "生产计划", "工单管理", "物料", "排产", "工艺管理", "AI 客服"
+            "生产计划", "工单管理", "物料", "排产", "工艺管理", "AI 客服", "产品管理"
     );
 
     private static final List<String> DEFAULT_ENGINEER_PERMISSIONS = List.of(
-            "设备", "工单管理", "工序进度", "异常上报", "工艺管理", "AI 客服"
+            "设备", "工单管理", "工序进度", "异常上报", "工艺管理", "AI 客服", "产品管理"
     );
 
     private static final List<String> DEFAULT_WORKER_PERMISSIONS = List.of(

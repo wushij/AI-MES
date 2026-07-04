@@ -179,6 +179,25 @@
             </el-table>
           </div>
 
+          <div v-if="currentParameters.length" class="process-bind-block">
+            <div class="bind-title">工艺参数</div>
+            <el-table :data="currentParameters" size="small" border>
+              <el-table-column prop="paramName" label="参数名" min-width="120" />
+              <el-table-column prop="paramValue" label="标准值" min-width="100">
+                <template #default="{ row }">{{ row.paramValue || '--' }}</template>
+              </el-table-column>
+              <el-table-column label="范围" min-width="120">
+                <template #default="{ row }">
+                  <span v-if="row.minValue || row.maxValue">{{ row.minValue ?? '--' }} ~ {{ row.maxValue ?? '--' }}</span>
+                  <span v-else>--</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="unit" label="单位" width="70">
+                <template #default="{ row }">{{ row.unit || '--' }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
+
           <div v-if="currentSops.length" class="process-bind-block">
             <div class="bind-title">作业指导书 (SOP)</div>
             <div class="sop-links">
@@ -186,6 +205,33 @@
                 {{ sop.fileName }}
               </el-button>
             </div>
+          </div>
+
+          <div v-if="needsInspection" class="process-bind-block">
+            <div class="bind-title">质量检验（报工前必填）</div>
+            <el-table :data="inspectionRows" size="small" border>
+              <el-table-column prop="itemName" label="检验项" min-width="120" />
+              <el-table-column label="标准" min-width="100">
+                <template #default="{ row }">
+                  <span v-if="row.standard">{{ row.standard }}</span>
+                  <span v-else-if="row.minValue || row.maxValue">{{ row.minValue ?? '--' }} ~ {{ row.maxValue ?? '--' }} {{ row.unit || '' }}</span>
+                  <span v-else>--</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="实测值" min-width="120">
+                <template #default="{ row }">
+                  <el-input v-model="row.measuredValue" placeholder="录入实测值" size="small" />
+                </template>
+              </el-table-column>
+              <el-table-column label="结果" width="100">
+                <template #default="{ row }">
+                  <el-select v-model="row.result" size="small">
+                    <el-option label="合格" value="pass" />
+                    <el-option label="不合格" value="fail" />
+                  </el-select>
+                </template>
+              </el-table-column>
+            </el-table>
           </div>
 
           <el-form-item label="备注说明">
@@ -224,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { TrendCharts } from '@element-plus/icons-vue'
@@ -237,6 +283,7 @@ import { claimWorkOrder, updateWorkOrderProgress } from '@/api/workOrders'
 import { getProcessExecutionContext, getProcessOperationNames, materialTypeLabel, type ProcessOperation, type ProcessSop } from '@/api/processRoutes'
 import { TOKEN_STORAGE_KEY } from '@/api/request'
 import { getDeviceOptions } from '@/api/devices'
+import { getInspectionPlansByProcess, submitInspectionRecords, type InspectionPlan } from '@/api/quality'
 import { normalizePriority, priorityLabel } from '@/utils/labels'
 
 type BoardStatus = 'pendingClaim' | 'inProgress' | 'completedToday'
@@ -273,6 +320,7 @@ const pagination = reactive({ page: 1, size: 10, total: 0 })
 const progressForm = reactive({ progress: 0, currentProcess: '', remark: '', deviceId: undefined as number | string | undefined })
 const processOptions = ref<string[]>(['备料', '装配', '检测', '包装'])
 const executionOperations = ref<ProcessOperation[]>([])
+const inspectionRows = ref<Array<InspectionPlan & { measuredValue: string; result: string }>>([])
 const allDeviceOptions = ref<Array<{ id: number | string; deviceName: string; deviceCode: string; categoryId?: number | string }>>([])
 const sopPreviewVisible = ref(false)
 const previewLoading = ref(false)
@@ -319,7 +367,10 @@ const currentOperation = computed(() =>
   executionOperations.value.find((item) => item.operationName === progressForm.currentProcess)
 )
 
+const needsInspection = computed(() => Number(currentOperation.value?.needCheck) === 1 && inspectionRows.value.length > 0)
+
 const currentMaterials = computed(() => currentOperation.value?.materials ?? [])
+const currentParameters = computed(() => currentOperation.value?.parameters ?? [])
 const currentSops = computed(() => currentOperation.value?.sops ?? [])
 
 const allowedDevices = computed(() => {
@@ -427,11 +478,30 @@ async function loadExecutionContext(workOrderId: string | number) {
   } catch (error) {
     console.error(error)
     executionOperations.value = []
+    inspectionRows.value = []
   }
 }
 
 function onProcessChange() {
   progressForm.deviceId = undefined
+  void loadInspectionPlans()
+}
+
+async function loadInspectionPlans() {
+  inspectionRows.value = []
+  if (!activeTask.value || !progressForm.currentProcess) return
+  const op = currentOperation.value
+  if (!op || Number(op.needCheck) !== 1) return
+  try {
+    const plans = await getInspectionPlansByProcess(activeTask.value.id, progressForm.currentProcess)
+    inspectionRows.value = plans.map((plan) => ({
+      ...plan,
+      measuredValue: '',
+      result: 'pass'
+    }))
+  } catch (error) {
+    console.error(error)
+  }
 }
 
 async function previewExecutionSop(row: ProcessSop) {
@@ -458,8 +528,58 @@ async function previewExecutionSop(row: ProcessSop) {
 async function submitProgress() {
   const valid = await progressFormRef.value?.validate().catch(() => false)
   if (!valid || !activeTask.value) return
+
+  const op = currentOperation.value
+  if (needsInspection.value) {
+    const missing = inspectionRows.value.some((row) => !row.measuredValue && row.result === 'pass')
+    if (missing) {
+      ElMessage.warning('请填写检验实测值，或将不合格项标记为不合格')
+      return
+    }
+  }
+
+  if (op) {
+    const warnings: string[] = []
+    if (Number(op.needCheck) === 1 && !needsInspection.value) {
+      warnings.push('当前工序要求质检（need_check），请确认已完成检验或已知悉风险')
+    }
+    if (Number(op.needScan) === 1) {
+      warnings.push('当前工序要求扫码（need_scan），请确认已完成扫码或已知悉风险')
+    }
+    if (warnings.length) {
+      try {
+        await ElMessageBox.confirm(warnings.join('\n'), '报工确认', {
+          type: 'warning',
+          confirmButtonText: '继续报工',
+          cancelButtonText: '取消'
+        })
+      } catch {
+        return
+      }
+    }
+  }
+
   submitting.value = true
   try {
+    if (needsInspection.value) {
+      const inspectionResult = await submitInspectionRecords({
+        workOrderId: activeTask.value.id,
+        processName: progressForm.currentProcess,
+        items: inspectionRows.value.map((row) => ({
+          planId: row.id,
+          itemName: row.itemName,
+          measuredValue: row.measuredValue,
+          result: row.result
+        }))
+      })
+      if (inspectionResult.hasFailure) {
+        ElMessage.error('检验不合格，已自动创建质量异常')
+        progressDialogVisible.value = false
+        await loadBoard()
+        return
+      }
+    }
+
     await updateWorkOrderProgress(activeTask.value.id, {
       progress: progressForm.progress,
       processName: progressForm.currentProcess,

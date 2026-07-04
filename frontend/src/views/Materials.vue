@@ -71,8 +71,9 @@
             <StatusTag :status="row.status" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="right" width="200" align="center">
+        <el-table-column label="操作" fixed="right" width="280" align="center">
           <template #default="{ row }">
+            <el-button size="small" class="action-btn action-btn--detail" @click="openDetail(row)">详情</el-button>
             <el-button size="small" class="action-btn action-btn--edit" @click="openStockDialog(row)">更新库存</el-button>
             <el-button size="small" class="action-btn action-btn--delete" :loading="deleteLoading === row.id" @click="removeMaterial(row)">删除</el-button>
           </template>
@@ -117,7 +118,7 @@
             <el-option label="米" value="米" />
           </el-select>
         </el-form-item>
-        <el-form-item label="备注">
+        <el-form-item label="备注" class="form-item--textarea">
           <el-input v-model="createForm.remark" type="textarea" :rows="2" maxlength="200" show-word-limit placeholder="可选" />
         </el-form-item>
       </el-form>
@@ -196,7 +197,7 @@
             class="full-width"
           />
         </el-form-item>
-        <el-form-item label="备注">
+        <el-form-item label="备注" class="form-item--textarea">
           <el-input
             v-model="stockForm.remark"
             type="textarea"
@@ -217,6 +218,115 @@
         </div>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="detailVisible"
+      width="720px"
+      class="custom-material-detail-dialog"
+      append-to-body
+      destroy-on-close
+      :show-close="true"
+    >
+      <template #header>
+        <div class="dialog-header-custom dialog-header-custom--detail">
+          <el-icon class="header-icon"><Box /></el-icon>
+          <div class="header-text-group">
+            <span class="header-text">{{ currentMaterial?.name || '物料详情' }}</span>
+            <span v-if="currentMaterial" class="header-subtext">{{ currentMaterial.code }}</span>
+          </div>
+        </div>
+      </template>
+
+      <template v-if="currentMaterial">
+        <div class="detail-meta-grid">
+          <div class="meta-item">
+            <span class="meta-item__label">物料编号</span>
+            <span class="meta-item__val code-highlight">{{ currentMaterial.code }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-item__label">单位</span>
+            <span class="meta-item__val">{{ currentMaterial.unit }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-item__label">物料名称</span>
+            <span class="meta-item__val text-highlight">{{ currentMaterial.name }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-item__label">库存状态</span>
+            <span class="meta-item__val">
+              <StatusTag :status="currentMaterial.status" />
+            </span>
+          </div>
+        </div>
+
+        <div class="detail-kpi-row">
+          <div class="detail-kpi-card" :class="{ 'detail-kpi-card--warning': currentMaterial.status === 'warning' }">
+            <span class="detail-kpi-card__label">当前库存</span>
+            <span class="detail-kpi-card__value">
+              {{ currentMaterial.stockQty }}
+              <span class="detail-kpi-card__unit">{{ currentMaterial.unit }}</span>
+            </span>
+          </div>
+          <div class="detail-kpi-card">
+            <span class="detail-kpi-card__label">安全库存</span>
+            <span class="detail-kpi-card__value">
+              {{ currentMaterial.safetyStock }}
+              <span class="detail-kpi-card__unit">{{ currentMaterial.unit }}</span>
+            </span>
+          </div>
+          <div class="detail-kpi-card" :class="{ 'detail-kpi-card--gap': currentMaterial.gap > 0 }">
+            <span class="detail-kpi-card__label">库存缺口</span>
+            <span class="detail-kpi-card__value">
+              {{ currentMaterial.gap > 0 ? currentMaterial.gap : '—' }}
+              <span v-if="currentMaterial.gap > 0" class="detail-kpi-card__unit">{{ currentMaterial.unit }}</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-section__header">
+            <span class="detail-section__title">库存流水</span>
+            <span class="detail-section__count">共 {{ transactions.length }} 条</span>
+          </div>
+          <el-table
+            v-loading="txnLoading"
+            :data="transactions"
+            border
+            stripe
+            size="small"
+            max-height="280"
+            :header-cell-style="tableHeaderStyle"
+            class="detail-txn-table"
+          >
+            <template #empty>
+              <el-empty description="暂无库存流水记录" :image-size="64" />
+            </template>
+            <el-table-column prop="createdTime" label="时间" min-width="150" align="center" />
+            <el-table-column label="类型" width="88" align="center">
+              <template #default="{ row }">
+                <el-tag size="small" :type="txnTypeTagType(row.txnType)" effect="light" round>
+                  {{ txnTypeLabel(row.txnType) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="qty" label="数量" width="80" align="center" />
+            <el-table-column label="库存变化" min-width="130" align="center">
+              <template #default="{ row }">
+                <span class="txn-change">{{ row.beforeQty }} → {{ row.afterQty }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip align="center" />
+          </el-table>
+        </div>
+      </template>
+
+      <template #footer>
+        <div class="dialog-footer-custom">
+          <el-button class="btn-cancel" @click="detailVisible = false">关闭</el-button>
+          <el-button type="primary" class="btn-submit" @click="openStockFromDetail">更新库存</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -228,6 +338,7 @@ import { Box, Plus, Minus, EditPen } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import { normalizeList } from '@/utils/normalizeList'
+import type { MaterialTransaction } from '@/api/materials'
 
 interface MaterialRow { id: string | number; code: string; name: string; unit: string; stockQty: number; safetyStock: number; gap: number; status: string }
 
@@ -238,6 +349,9 @@ const deleteLoading = ref<string | number | null>(null)
 const materials = ref<MaterialRow[]>([])
 const currentMaterial = ref<MaterialRow | null>(null)
 const stockDialogVisible = ref(false)
+const detailVisible = ref(false)
+const txnLoading = ref(false)
+const transactions = ref<MaterialTransaction[]>([])
 const createDialogVisible = ref(false)
 const stockFormRef = ref<FormInstance>()
 const createFormRef = ref<FormInstance>()
@@ -383,6 +497,44 @@ function openStockDialog(row: MaterialRow) {
   stockForm.quantity = 1
   stockForm.remark = ''
   stockDialogVisible.value = true
+}
+
+async function openDetail(row: MaterialRow) {
+  currentMaterial.value = row
+  detailVisible.value = true
+  txnLoading.value = true
+  try {
+    const api = await import('@/api/materials')
+    transactions.value = await api.getMaterialTransactions(row.id)
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('加载库存流水失败')
+    transactions.value = []
+  } finally {
+    txnLoading.value = false
+  }
+}
+
+function openStockFromDetail() {
+  if (!currentMaterial.value) return
+  detailVisible.value = false
+  openStockDialog(currentMaterial.value)
+}
+
+function txnTypeLabel(type: string) {
+  const map: Record<string, string> = { in: '入库', out: '出库', pick: '领料', return: '退料', adjust: '调整' }
+  return map[type] || type
+}
+
+function txnTypeTagType(type: string): 'success' | 'warning' | 'info' | 'danger' | '' {
+  const map: Record<string, 'success' | 'warning' | 'info' | 'danger' | ''> = {
+    in: 'success',
+    out: 'warning',
+    pick: 'info',
+    return: '',
+    adjust: 'danger'
+  }
+  return map[type] ?? ''
 }
 
 function openCreateDialog() {
@@ -666,6 +818,23 @@ function rowClassName({ row }: { row: MaterialRow }) {
   color: #1e293b;
 }
 
+.dialog-header-custom--detail {
+  width: 100%;
+}
+
+.header-text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.header-subtext {
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+  font-family: ui-monospace, monospace;
+}
+
 .stock-meta-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -807,5 +976,157 @@ function rowClassName({ row }: { row: MaterialRow }) {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Material detail dialog */
+.custom-material-detail-dialog :deep(.el-dialog) {
+  border-radius: 16px !important;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08) !important;
+}
+
+.custom-material-detail-dialog :deep(.el-dialog__header) {
+  margin-right: 0;
+  padding: 20px 24px;
+  border-bottom: 1px solid #f1f5f9;
+  background-color: #f8fafc;
+}
+
+.custom-material-detail-dialog :deep(.el-dialog__body) {
+  padding: 20px 24px;
+}
+
+.custom-material-detail-dialog :deep(.el-dialog__footer) {
+  padding: 12px 24px 20px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.detail-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 16px;
+}
+
+.meta-item {
+  background: #f8fafc;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meta-item__label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.meta-item__val {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.code-highlight {
+  font-family: ui-monospace, monospace;
+  color: #4f46e5;
+}
+
+.text-highlight {
+  color: #0f172a;
+}
+
+.detail-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.detail-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  border-left: 4px solid #4f46e5;
+  transition: all 0.2s ease;
+}
+
+.detail-kpi-card--warning {
+  background: rgba(239, 68, 68, 0.03);
+  border-color: rgba(239, 68, 68, 0.15);
+  border-left-color: #ef4444;
+}
+
+.detail-kpi-card--gap {
+  border-left-color: #f59e0b;
+}
+
+.detail-kpi-card--gap .detail-kpi-card__value {
+  color: #d97706;
+}
+
+.detail-kpi-card__label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.detail-kpi-card__value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.detail-kpi-card--warning .detail-kpi-card__value {
+  color: #ef4444;
+}
+
+.detail-kpi-card__unit {
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-left: 2px;
+}
+
+.detail-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.detail-section__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.detail-section__count {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.detail-txn-table {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.detail-txn-table :deep(.el-table__empty-block) {
+  min-height: 120px;
+}
+
+.txn-change {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: #475569;
 }
 </style>

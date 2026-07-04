@@ -39,6 +39,12 @@ const router = createRouter({
           meta: { title: '生产计划', permission: '生产计划' }
         },
         {
+          path: 'plans/:id',
+          name: 'plan-detail',
+          component: () => import('@/views/PlanDetail.vue'),
+          meta: { title: '计划详情', permission: '生产计划' }
+        },
+        {
           path: 'work-orders',
           name: 'work-orders',
           component: () => import('@/views/WorkOrders.vue'),
@@ -79,6 +85,12 @@ const router = createRouter({
           name: 'exceptions',
           component: () => import('@/views/Exceptions.vue'),
           meta: { title: '异常管理', permission: '异常上报' }
+        },
+        {
+          path: 'products',
+          name: 'products',
+          component: () => import('@/views/Products.vue'),
+          meta: { title: '产品管理', permission: '产品管理' }
         },
         {
           path: 'materials',

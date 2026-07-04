@@ -89,7 +89,11 @@
           <el-input v-model="form.routeName" placeholder="请输入工艺名称" />
         </el-form-item>
         <el-form-item label="适用产品">
-          <el-input v-model="form.productName" placeholder="留空表示通用工艺" />
+          <ProductSelect
+            v-model="form.productId"
+            placeholder="留空表示通用工艺"
+            @change="onProductChange"
+          />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" :rows="3" placeholder="请输入备注信息" />
@@ -111,6 +115,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import ProductSelect from '@/components/common/ProductSelect.vue'
 import ProcessRouteDetail from './ProcessRouteDetail.vue'
 import {
   copyProcessRoute, deleteProcessRoute, getProcessRoutes, routeStatusLabel, routeStatusType,
@@ -162,9 +167,15 @@ const form = ref({
   id: '',
   routeCode: '',
   routeName: '',
+  productId: undefined as number | string | undefined,
   productName: '',
   remark: ''
 })
+
+function onProductChange(payload: { productId?: number | string; productName: string }) {
+  form.value.productId = payload.productId
+  form.value.productName = payload.productName
+}
 
 const rules = {
   routeName: [
@@ -206,6 +217,7 @@ function openCreate() {
     id: '',
     routeCode: '',
     routeName: '',
+    productId: undefined,
     productName: '',
     remark: ''
   }
@@ -218,6 +230,7 @@ function openEdit(row: ProcessRoute) {
     id: String(row.id),
     routeCode: row.routeCode || '',
     routeName: row.routeName,
+    productId: row.productId,
     productName: row.productName || '',
     remark: row.remark || ''
   }
@@ -231,25 +244,30 @@ async function handleSubmit() {
     saving.value = true
     try {
       if (dialogMode.value === 'create') {
-        await createProcessRoute({
+        const created = await createProcessRoute({
           routeCode: form.value.routeCode || undefined,
           routeName: form.value.routeName,
+          productId: form.value.productId,
           productName: form.value.productName || undefined,
-          remark: form.value.remark || undefined,
-          operations: []
+          remark: form.value.remark || undefined
         })
         ElMessage.success('新建工艺成功')
+        dialogVisible.value = false
+        router.push(`/process-management/${created.id}`)
       } else {
         await updateProcessRoute(form.value.id, {
           routeCode: form.value.routeCode || undefined,
           routeName: form.value.routeName,
+          productId: form.value.productId,
           productName: form.value.productName || undefined,
           remark: form.value.remark || undefined
         })
         ElMessage.success('更新工艺成功')
       }
-      dialogVisible.value = false
-      await loadRoutes()
+      if (dialogMode.value !== 'create') {
+        dialogVisible.value = false
+        await loadRoutes()
+      }
     } catch (error) {
       console.error(error)
       ElMessage.error(dialogMode.value === 'create' ? '新建失败' : '更新失败')

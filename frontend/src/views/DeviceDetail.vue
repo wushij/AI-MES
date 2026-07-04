@@ -44,6 +44,8 @@
               <el-descriptions-item label="品牌/型号">{{ [detail.brand, detail.model].filter(Boolean).join(' / ') || '--' }}</el-descriptions-item>
               <el-descriptions-item label="序列号">{{ detail.serialNumber || '--' }}</el-descriptions-item>
               <el-descriptions-item label="负责人">{{ detail.managerName || '--' }}</el-descriptions-item>
+              <el-descriptions-item label="购买日期">{{ detail.purchaseDate || '--' }}</el-descriptions-item>
+              <el-descriptions-item label="安装日期">{{ detail.installDate || '--' }}</el-descriptions-item>
               <el-descriptions-item label="车间">{{ detail.workshop || '--' }}</el-descriptions-item>
               <el-descriptions-item label="产线">{{ detail.lineName || '--' }}</el-descriptions-item>
               <el-descriptions-item label="工位">{{ detail.station || '--' }}</el-descriptions-item>
@@ -87,6 +89,29 @@
                   </el-form>
                 </el-col>
               </el-row>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane :label="`运行记录 (${processRecords.length})`" name="records">
+            <div class="tab-content-box">
+              <el-table v-if="processRecords.length" :data="processRecords" stripe border :header-cell-style="tableHeaderStyle">
+                <el-table-column prop="orderNo" label="工单号" min-width="120" />
+                <el-table-column prop="productName" label="产品" min-width="120" show-overflow-tooltip />
+                <el-table-column prop="processName" label="工序" min-width="100" />
+                <el-table-column prop="status" label="状态" width="100">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="recordStatusTag(row.status)">{{ row.statusLabel || row.status }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="startTime" label="开始时间" min-width="160">
+                  <template #default="{ row }">{{ formatTime(row.startTime) }}</template>
+                </el-table-column>
+                <el-table-column prop="endTime" label="结束时间" min-width="160">
+                  <template #default="{ row }">{{ formatTime(row.endTime) }}</template>
+                </el-table-column>
+                <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+              </el-table>
+              <el-empty v-else description="暂无运行/报工记录" />
             </div>
           </el-tab-pane>
 
@@ -148,7 +173,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
-import { getDeviceFullDetail, updateDeviceStatus, type DeviceFullDetail, type DeviceHistoryItem } from '@/api/devices'
+import { getDeviceFullDetail, getDeviceProcessRecords, updateDeviceStatus, type DeviceFullDetail, type DeviceHistoryItem, type DeviceProcessRecordItem } from '@/api/devices'
 import { DEVICE_STATUSES, deviceActionLabel, deviceStatusLabel, deviceStatusTagType } from '@/utils/deviceLabels'
 
 const props = defineProps<{
@@ -167,6 +192,7 @@ const loading = ref(false)
 const statusSubmitting = ref(false)
 const activeTab = ref('basic')
 const detail = ref<DeviceFullDetail | null>(null)
+const processRecords = ref<DeviceProcessRecordItem[]>([])
 const statusForm = reactive({ status: '', remark: '' })
 
 const isPropMode = computed(() => props.id != null && props.id !== '')
@@ -183,6 +209,15 @@ const history = computed(() => detail.value?.history ?? [])
 function formatTime(value?: string) {
   if (!value) return '--'
   return value.replace('T', ' ').slice(0, 19)
+}
+
+function recordStatusTag(status?: string) {
+  switch (status) {
+    case 'running': return 'success'
+    case 'paused': return 'warning'
+    case 'done': return 'info'
+    default: return ''
+  }
 }
 
 function actionClass(actionType?: string) {
@@ -215,7 +250,12 @@ async function loadDetail() {
   if (!id) return
   loading.value = true
   try {
-    detail.value = await getDeviceFullDetail(id)
+    const [detailData, records] = await Promise.all([
+      getDeviceFullDetail(id),
+      getDeviceProcessRecords(id)
+    ])
+    detail.value = detailData
+    processRecords.value = records
     statusForm.status = detail.value.status ?? 'idle'
   } catch (error) {
     console.error(error)
@@ -515,11 +555,12 @@ onMounted(loadDetail)
   padding: 4px 16px !important;
 }
 :deep(.el-textarea__inner) {
-  border-radius: 16px !important;
+  border-radius: 20px !important;
   background-color: #f8fafc !important;
   box-shadow: 0 0 0 1px #e2e8f0 inset !important;
+  border: none !important;
   transition: all 0.3s ease !important;
-  padding: 8px 16px !important;
+  padding: 10px 16px !important;
 }
 :deep(.el-input__wrapper.is-focus),
 :deep(.el-textarea__inner:focus) {

@@ -1,13 +1,14 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
+import com.aimes.common.OperationLog;
+import com.aimes.common.OperationLogRunner;
 import com.aimes.dto.Requests.PlanSaveRequest;
+import com.aimes.config.AimesProperties;
 import com.aimes.entity.ProdPlan;
-import com.aimes.entity.ProdProcessRecord;
 import com.aimes.entity.ProdWorkOrder;
 import com.aimes.entity.SysUser;
 import com.aimes.mapper.ProdPlanMapper;
-import com.aimes.mapper.ProdProcessRecordMapper;
 import com.aimes.mapper.ProdWorkOrderMapper;
 import com.aimes.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -17,7 +18,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.aimes.entity.ProdTeam;
+import com.aimes.mapper.ProdTeamMapper;
+
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,13 +33,16 @@ public class PlanService {
 
     private final ProdPlanMapper prodPlanMapper;
     private final ProdWorkOrderMapper prodWorkOrderMapper;
-    private final ProdProcessRecordMapper prodProcessRecordMapper;
+    private final ProdTeamMapper prodTeamMapper;
     private final SysUserMapper sysUserMapper;
     private final AuthService authService;
     private final SysNotificationService sysNotificationService;
     private final WorkOrderNoService workOrderNoService;
     private final ReferentialIntegrityService referentialIntegrityService;
     private final ProcessRouteService processRouteService;
+    private final OperationLogRunner operationLogRunner;
+    private final ProductService productService;
+    private final AimesProperties aimesProperties;
 
     public Map<String, Object> list(long current, long size, String keyword, String status) {
         LambdaQueryWrapper<ProdPlan> wrapper = new LambdaQueryWrapper<ProdPlan>()
@@ -51,14 +59,26 @@ public class PlanService {
     }
 
     public Map<String, Object> detail(Long id) {
-        return toView(getPlan(id));
+        ProdPlan plan = getPlan(id);
+        Map<String, Object> view = toView(plan);
+        List<ProdWorkOrder> orders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
+                .eq(ProdWorkOrder::getPlanId, id)
+                .orderByDesc(ProdWorkOrder::getId));
+        view.put("workOrders", orders.stream().map(this::toWorkOrderSummary).toList());
+        view.put("completionProgress", computeCompletionProgress(orders));
+        view.put("executionStatus", resolveExecutionStatus(plan, orders));
+        if (plan.getProductId() != null) {
+            view.put("product", productService.getProductSummary(plan.getProductId()));
+            view.put("hasBom", productService.hasActiveBom(plan.getProductId()));
+        }
+        return view;
     }
 
     @Transactional
     public Map<String, Object> create(PlanSaveRequest request) {
         ProdPlan plan = new ProdPlan();
         plan.setPlanNo(StringUtils.hasText(request.getPlanNo()) ? request.getPlanNo() : nextPlanNo());
-        plan.setProductName(request.getProductName());
+        applyProduct(plan, request.getProductId(), request.getProductName());
         plan.setPlanQty(request.getPlanQty());
         plan.setPlanDate(request.getPlanDate());
         plan.setStatus(StringUtils.hasText(request.getStatus()) ? request.getStatus() : "draft");
@@ -74,7 +94,7 @@ public class PlanService {
         if ("completed".equals(plan.getStatus())) {
             throw new BusinessException("已完成计划不允许修改");
         }
-        plan.setProductName(request.getProductName());
+        applyProduct(plan, request.getProductId(), request.getProductName());
         plan.setPlanQty(request.getPlanQty());
         plan.setPlanDate(request.getPlanDate());
         if (StringUtils.hasText(request.getStatus())) {
@@ -86,13 +106,42 @@ public class PlanService {
     }
 
     @Transactional
+    @OperationLog(module = "生产计划", action = "删除")
     public void delete(Long id) {
+        operationLogRunner.runVoid("生产计划", "删除", "delete", new Object[]{id}, () -> deleteInternal(id));
+    }
+
+    private void deleteInternal(Long id) {
         referentialIntegrityService.ensurePlanDeletable(id);
         prodPlanMapper.deleteById(id);
     }
 
     @Transactional
+    @OperationLog(module = "生产计划", action = "下发")
     public Map<String, Object> release(Long id) {
+        return operationLogRunner.runUnchecked("生产计划", "下发", "release", new Object[]{id}, () -> releaseInternal(id));
+    }
+
+    public Map<String, Object> previewRelease(Long id) {
+        ProdPlan plan = getPlan(id);
+        if (!"draft".equals(plan.getStatus())) {
+            throw new BusinessException("只有草稿计划可以预览下发");
+        }
+        List<Map<String, Object>> workOrders = buildSplitPreview(plan);
+        boolean hasBom = plan.getProductId() != null && productService.hasActiveBom(plan.getProductId());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plan", toView(plan));
+        result.put("splitQty", aimesProperties.getPlanSplitQty());
+        result.put("workOrderCount", workOrders.size());
+        result.put("workOrders", workOrders);
+        result.put("hasBom", hasBom);
+        if (!hasBom) {
+            result.put("bomWarning", "产品未配置 BOM，下发后无法预览理论用料");
+        }
+        return result;
+    }
+
+    private Map<String, Object> releaseInternal(Long id) {
         ProdPlan plan = getPlan(id);
         if (!"draft".equals(plan.getStatus())) {
             throw new BusinessException("只有草稿计划可以下发");
@@ -102,7 +151,6 @@ public class PlanService {
         plan.setReleaseTime(LocalDateTime.now());
         prodPlanMapper.updateById(plan);
 
-        // Notify admin and supervisor about the released plan
         List<SysUser> usersToNotify = sysUserMapper.selectList(new LambdaQueryWrapper<SysUser>()
                 .in(SysUser::getRole, java.util.List.of("admin", "supervisor")));
         for (SysUser recipient : usersToNotify) {
@@ -115,21 +163,79 @@ public class PlanService {
             );
         }
 
-        ProdWorkOrder order = new ProdWorkOrder();
-        order.setOrderNo(workOrderNoService.nextOrderNo());
-        order.setPlanId(plan.getId());
-        order.setProductName(plan.getProductName());
-        processRouteService.applyRoutingToWorkOrder(order, plan.getProductName());
-        order.setProgress(0);
-        order.setStatus("pending");
-        order.setPriority(2);
-        order.setDeadline(plan.getPlanDate().atTime(18, 0));
-        order.setRemark("由计划 " + plan.getPlanNo() + " 自动生成");
-        prodWorkOrderMapper.insert(order);
+        List<Integer> splitQtys = computeSplitQuantities(plan.getPlanQty());
+        List<ProdWorkOrder> generated = new ArrayList<>();
+        int index = 1;
+        for (Integer qty : splitQtys) {
+            ProdWorkOrder order = new ProdWorkOrder();
+            order.setOrderNo(workOrderNoService.nextOrderNo());
+            order.setPlanId(plan.getId());
+            order.setProductId(plan.getProductId());
+            order.setProductName(plan.getProductName());
+            order.setOrderQty(qty);
+            processRouteService.applyRoutingToWorkOrder(order, plan.getProductId(), plan.getProductName());
+            order.setProgress(0);
+            order.setStatus("pending");
+            order.setPriority(2);
+            order.setDeadline(plan.getPlanDate().atTime(18, 0));
+            String splitHint = splitQtys.size() > 1 ? "（批次 " + index + "/" + splitQtys.size() + "，数量 " + qty + "）" : "";
+            order.setRemark("由计划 " + plan.getPlanNo() + " 自动生成" + splitHint);
+            prodWorkOrderMapper.insert(order);
+            processRouteService.initProcessRecords(order.getId(), plan.getProductId(), plan.getProductName());
+            generated.add(order);
+            index++;
+        }
 
-        processRouteService.initProcessRecords(order.getId(), plan.getProductName());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plan", toView(plan));
+        result.put("generatedWorkOrders", generated.stream().map(this::toWorkOrderSummary).toList());
+        result.put("generatedWorkOrder", generated.isEmpty() ? null : generated.get(0));
+        result.put("hasBom", plan.getProductId() != null && productService.hasActiveBom(plan.getProductId()));
+        return result;
+    }
 
-        return Map.of("plan", toView(plan), "generatedWorkOrder", order);
+    private List<Map<String, Object>> buildSplitPreview(ProdPlan plan) {
+        List<Integer> splitQtys = computeSplitQuantities(plan.getPlanQty());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        int index = 1;
+        for (Integer qty : splitQtys) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("batchNo", index);
+            row.put("quantity", qty);
+            row.put("productName", plan.getProductName());
+            row.put("deadline", plan.getPlanDate().atTime(18, 0));
+            rows.add(row);
+            index++;
+        }
+        return rows;
+    }
+
+    private List<Integer> computeSplitQuantities(int planQty) {
+        int splitSize = Math.max(1, aimesProperties.getPlanSplitQty());
+        List<Integer> quantities = new ArrayList<>();
+        int remaining = planQty;
+        while (remaining > 0) {
+            int batch = Math.min(remaining, splitSize);
+            quantities.add(batch);
+            remaining -= batch;
+        }
+        return quantities;
+    }
+
+    private void applyProduct(ProdPlan plan, Long productId, String productName) {
+        if (productId != null) {
+            var summary = productService.getProductSummary(productId);
+            plan.setProductId(productId);
+            plan.setProductName((String) summary.get("productName"));
+            return;
+        }
+        plan.setProductName(productName);
+        var product = productService.findByName(productName);
+        if (product != null) {
+            plan.setProductId(product.getId());
+        } else {
+            plan.setProductId(null);
+        }
     }
 
     private ProdPlan getPlan(Long id) {
@@ -147,6 +253,7 @@ public class PlanService {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", plan.getId());
         view.put("planNo", plan.getPlanNo());
+        view.put("productId", plan.getProductId());
         view.put("productName", plan.getProductName());
         view.put("planQty", plan.getPlanQty());
         view.put("planDate", plan.getPlanDate());
@@ -168,5 +275,54 @@ public class PlanService {
 
     private Map<String, Object> pageResult(long total, List<?> records) {
         return Map.of("total", total, "records", records);
+    }
+
+    private Map<String, Object> toWorkOrderSummary(ProdWorkOrder order) {
+        ProdTeam team = order.getTeamId() == null ? null : prodTeamMapper.selectById(order.getTeamId());
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", order.getId());
+        row.put("orderNo", order.getOrderNo());
+        row.put("productId", order.getProductId());
+        row.put("productName", order.getProductName());
+        row.put("orderQty", order.getOrderQty());
+        row.put("processName", order.getProcessName());
+        row.put("progress", order.getProgress());
+        row.put("status", order.getStatus());
+        row.put("teamName", team == null ? null : team.getTeamName());
+        row.put("deadline", order.getDeadline());
+        row.put("scheduledStartTime", order.getScheduledStartTime());
+        row.put("estimatedHours", order.getEstimatedHours());
+        row.put("schedulingRank", order.getSchedulingRank());
+        return row;
+    }
+
+    private int computeCompletionProgress(List<ProdWorkOrder> orders) {
+        if (orders.isEmpty()) {
+            return 0;
+        }
+        return (int) Math.round(orders.stream()
+                .mapToInt(o -> o.getProgress() == null ? 0 : o.getProgress())
+                .average()
+                .orElse(0));
+    }
+
+    private String resolveExecutionStatus(ProdPlan plan, List<ProdWorkOrder> orders) {
+        if ("draft".equals(plan.getStatus())) {
+            return "draft";
+        }
+        if ("done".equals(plan.getStatus())) {
+            return "done";
+        }
+        if (orders.isEmpty()) {
+            return "released";
+        }
+        boolean allDone = orders.stream().allMatch(o -> "done".equals(o.getStatus()));
+        if (allDone) {
+            return "done";
+        }
+        boolean anyStarted = orders.stream().anyMatch(o ->
+                ("done".equals(o.getStatus()) || "producing".equals(o.getStatus()) || "exception".equals(o.getStatus()))
+                        || (o.getProgress() != null && o.getProgress() > 0));
+        return anyStarted ? "in_progress" : "released";
     }
 }

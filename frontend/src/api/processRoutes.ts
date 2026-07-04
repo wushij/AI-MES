@@ -75,6 +75,7 @@ export interface ProcessRoute {
   id: number | string
   routeCode?: string
   routeName: string
+  productId?: number | string
   productName?: string
   version?: string
   status?: string

@@ -85,6 +85,12 @@ public class DeviceController {
         return Result.ok("删除成功", null);
     }
 
+    @GetMapping("/{id}/process-records")
+    @SaCheckPermission("设备")
+    public Result<List<Map<String, Object>>> processRecords(@PathVariable Long id) {
+        return Result.ok(deviceService.listProcessRecords(id));
+    }
+
     @GetMapping("/{id}")
     @SaCheckPermission("设备")
     public Result<Map<String, Object>> detail(@PathVariable Long id) {

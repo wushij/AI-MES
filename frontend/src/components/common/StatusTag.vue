@@ -19,6 +19,7 @@ const STATUS_LABELS: Record<string, string> = {
   warning: '预警',
   draft: '草稿',
   released: '已下发',
+  in_progress: '进行中',
   paused: '已暂停',
   normal: '正常',
   shutdown: '设备停机',
@@ -45,7 +46,7 @@ const preset = computed(() => {
   if (['done', 'completed', 'closed', 'success', 'released', 'normal'].includes(value)) {
     return { type: 'success', label: displayLabel.value }
   }
-  if (['warning', 'paused', 'processing', 'medium'].includes(value)) {
+  if (['warning', 'paused', 'processing', 'medium', 'in_progress'].includes(value)) {
     return { type: 'warning', label: displayLabel.value }
   }
   if (['exception', 'critical', 'danger', 'open', 'shutdown', 'high'].includes(value)) {

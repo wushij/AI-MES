@@ -152,12 +152,14 @@
 </template>
 
 <script setup lang="ts">
+
 import { computed, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Camera, User, Lock, Calendar, CircleCheck } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { useUserStore } from '@/stores/user'
+import { roleLabel as getRoleLabel } from '@/utils/labels'
 import { updateUserProfile, changePassword } from '@/api/auth'
 
 const userStore = useUserStore()
@@ -214,16 +216,15 @@ const passwordRules = reactive<FormRules>({
 
 // Role displays
 const roleLabel = computed(() => {
-  if (userStore.isAdmin) return '管理员'
-  if (userStore.isSupervisor) return '车间主管'
-  if (userStore.isWorker) return '普通员工'
-  return '访客'
+  return getRoleLabel(userStore.role)
 })
 
 const roleTagType = computed(() => {
   if (userStore.isAdmin) return 'danger'
   if (userStore.isSupervisor) return 'primary'
-  if (userStore.isWorker) return 'success'
+  if (userStore.role === 'planner') return 'success'
+  if (userStore.role === 'engineer') return 'warning'
+  if (userStore.isWorker) return 'info'
   return 'info'
 })
 
