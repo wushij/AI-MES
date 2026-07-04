@@ -32,7 +32,7 @@ function isActive(path: string) {
 .admin-subnav {
   display: flex;
   gap: 8px;
-  margin: -8px 0 20px;
+  margin: -4px 0 0 0;
   padding-bottom: 4px;
 }
 

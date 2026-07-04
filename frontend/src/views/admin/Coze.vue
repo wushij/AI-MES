@@ -406,12 +406,12 @@ onMounted(loadConfig)
 .view-page {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 16px;
 }
 
 .config-container {
   width: 100%;
-  padding: 16px 0;
+  padding: 0 0 16px 0;
   display: flex;
   flex-direction: column;
   gap: 20px;

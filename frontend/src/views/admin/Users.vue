@@ -389,7 +389,7 @@ function resetFilters() {
 .view-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 /* Toolbar Card Styling */

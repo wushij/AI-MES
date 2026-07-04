@@ -267,3 +267,298 @@ body {
   font-weight: 500 !important;
   margin-right: 12px;
 }
+
+/* ============================================
+   Custom Premium Message Box (ElMessageBox) Styles
+   ============================================ */
+
+/* Sleek dialog backdrop with glassmorphism blur */
+.el-overlay {
+  background-color: rgba(15, 23, 42, 0.3) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+/* Rounded and premium dialog container */
+.el-message-box {
+  --el-messagebox-border-radius: 20px;
+  border-radius: var(--el-messagebox-border-radius) !important;
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  box-shadow: 
+    0 10px 30px -10px rgba(79, 70, 229, 0.12),
+    0 20px 40px -15px rgba(15, 23, 42, 0.18) !important;
+  padding: 24px 28px !important;
+  max-width: 420px !important;
+  width: 90% !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+/* Header styles */
+.el-message-box__header {
+  padding: 0 0 10px 0 !important;
+  position: relative !important;
+}
+
+.el-message-box__title {
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important; /* slate-900 */
+}
+
+/* Close icon */
+.el-message-box__headerbtn {
+  top: 0px !important;
+  right: 0px !important;
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 50% !important;
+  background: #f1f5f9 !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+}
+
+.el-message-box__headerbtn:hover {
+  background: #e2e8f0 !important;
+  transform: rotate(90deg);
+}
+
+.el-message-box__headerbtn .el-icon,
+.el-message-box__headerbtn .el-message-box__close {
+  color: #64748b !important;
+  font-size: 14px !important;
+  transition: color 0.2s ease !important;
+}
+
+.el-message-box__headerbtn:hover .el-icon,
+.el-message-box__headerbtn:hover .el-message-box__close {
+  color: #0f172a !important;
+}
+
+/* Content styles */
+.el-message-box__content {
+  padding: 8px 0 20px 0 !important;
+  font-size: 14.5px !important;
+  line-height: 1.6 !important;
+  color: #475569 !important; /* slate-600 */
+}
+
+/* Align and style icons beautifully */
+.el-message-box__container {
+  display: flex !important;
+  align-items: flex-start !important;
+}
+
+.el-message-box__status {
+  font-size: 22px !important;
+  margin-right: 12px !important;
+  margin-top: 2px !important;
+}
+
+/* Custom icon colors to match theme */
+.el-message-box__status.el-icon-warning,
+.el-message-box__status.warning {
+  color: var(--cd-warning) !important;
+}
+
+.el-message-box__status.el-icon-info,
+.el-message-box__status.info {
+  color: var(--cd-info) !important;
+}
+
+.el-message-box__status.el-icon-success,
+.el-message-box__status.success {
+  color: var(--cd-success) !important;
+}
+
+.el-message-box__status.el-icon-error,
+.el-message-box__status.error {
+  color: var(--cd-danger) !important;
+}
+
+/* Button footer style */
+.el-message-box__btns {
+  padding: 12px 0 0 0 !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 12px !important;
+}
+
+/* Buttons overriding for messagebox context */
+.el-message-box__btns .el-button {
+  padding: 10px 22px !important;
+  height: 38px !important;
+  font-size: 14px !important;
+  min-width: 90px;
+  border-radius: var(--cd-radius-full) !important;
+  margin-left: 0 !important; /* reset element-plus default margin-left */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  font-weight: 600 !important;
+}
+
+/* Cancel Button */
+.el-message-box__btns .el-button:first-child:not(.el-button--primary) {
+  border: 1px solid #e2e8f0 !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+}
+
+.el-message-box__btns .el-button:first-child:not(.el-button--primary):hover {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+  transform: translateY(-1px);
+}
+
+/* Confirm Button */
+.el-message-box__btns .el-button--primary {
+  background: var(--cd-primary-gradient) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2) !important;
+}
+
+.el-message-box__btns .el-button--primary:hover {
+  background: var(--cd-primary-gradient-hover) !important;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.3) !important;
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   Custom Premium Dialog (ElDialog) Styles
+   ============================================ */
+
+.el-dialog {
+  --el-dialog-border-radius: 20px;
+  border-radius: var(--el-dialog-border-radius) !important;
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  box-shadow: 
+    0 10px 30px -10px rgba(79, 70, 229, 0.1),
+    0 20px 40px -15px rgba(15, 23, 42, 0.15) !important;
+  overflow: hidden !important;
+  padding: 0 !important; /* reset default padding */
+}
+
+/* Header styling */
+.el-dialog__header {
+  padding: 24px 28px 16px 28px !important;
+  margin-right: 0 !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1) !important;
+}
+
+.el-dialog__title {
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+/* Dialog close button */
+.el-dialog__headerbtn {
+  top: 20px !important;
+  right: 20px !important;
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 50% !important;
+  background: #f1f5f9 !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+}
+
+.el-dialog__headerbtn:hover {
+  background: #e2e8f0 !important;
+  transform: rotate(90deg);
+}
+
+.el-dialog__headerbtn .el-icon,
+.el-dialog__headerbtn .el-dialog__close {
+  color: #64748b !important;
+  font-size: 14px !important;
+  transition: color 0.2s ease !important;
+}
+
+.el-dialog__headerbtn:hover .el-icon,
+.el-dialog__headerbtn:hover .el-dialog__close {
+  color: #0f172a !important;
+}
+
+/* Body styling */
+.el-dialog__body {
+  padding: 24px 28px !important;
+  color: #475569 !important;
+}
+
+/* Footer styling */
+.el-dialog__footer {
+  padding: 16px 28px 24px 28px !important;
+  border-top: 1px solid rgba(148, 163, 184, 0.08) !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 12px !important;
+}
+
+/* Override dialog buttons */
+.el-dialog__footer .el-button {
+  padding: 10px 22px !important;
+  height: 38px !important;
+  font-size: 14px !important;
+  min-width: 90px;
+  border-radius: var(--cd-radius-full) !important;
+  margin-left: 0 !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  font-weight: 600 !important;
+}
+
+/* Cancel Button in Dialog Footer */
+.el-dialog__footer .el-button:not(.el-button--primary) {
+  border: 1px solid #e2e8f0 !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+}
+
+.el-dialog__footer .el-button:not(.el-button--primary):hover {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+  transform: translateY(-1px);
+}
+
+/* Confirm Button in Dialog Footer */
+.el-dialog__footer .el-button--primary {
+  background: var(--cd-primary-gradient) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2) !important;
+}
+
+.el-dialog__footer .el-button--primary:hover {
+  background: var(--cd-primary-gradient-hover) !important;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.3) !important;
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   Custom Premium Table Action Buttons Styles
+   ============================================ */
+
+/* Force all action-btn buttons in tables to be pill-shaped (rounded) globally */
+html body .el-button.action-btn,
+html body .action-btn.el-button {
+  border-radius: var(--cd-radius-full) !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+}

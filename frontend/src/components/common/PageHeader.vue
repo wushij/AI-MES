@@ -34,7 +34,7 @@ const sectionLabel = computed(() => props.section ?? (route.meta.section as stri
 <style scoped>
 .page-banner {
   position: relative;
-  margin-bottom: 16px;
+  margin-bottom: 0;
   padding: 10px 18px;
   border-radius: 10px;
   color: #fff;

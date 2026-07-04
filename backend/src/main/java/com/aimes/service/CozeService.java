@@ -688,7 +688,6 @@ public class CozeService {
         return assignedTeams;
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, Object> finalizeSchedulingResult(
             Map<String, Object> parsed,
             List<ProdWorkOrder> workOrders,
@@ -868,7 +867,6 @@ public class CozeService {
         return result;
     }
 
-    @SuppressWarnings("unchecked")
     private String buildSchedulingSummary(
             Map<String, Object> result,
             List<ProdWorkOrder> workOrders,
@@ -964,7 +962,6 @@ public class CozeService {
         return "";
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, Object> applySchedulingConstraintsToResult(
             Map<String, Object> parsed,
             Map<String, Boolean> constraints,
