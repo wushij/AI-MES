@@ -185,6 +185,22 @@
             <el-option v-for="team in teamOptions" :key="team.id" :label="team.name" :value="team.id" />
           </el-select>
         </el-form-item>
+
+        <div v-if="hasSchedulingInfo" class="scheduling-info-block">
+          <div class="scheduling-info-block__title">AI 排产信息</div>
+          <div class="scheduling-info-grid">
+            <div v-if="schedulingInfo.scheduledStartTime" class="scheduling-info-item">
+              <span class="scheduling-info-item__label">建议开工</span>
+              <strong>{{ schedulingInfo.scheduledStartTime }}</strong>
+            </div>
+            <div v-if="schedulingInfo.estimatedHours" class="scheduling-info-item">
+              <span class="scheduling-info-item__label">预计工时</span>
+              <strong>{{ schedulingInfo.estimatedHours }} 小时</strong>
+            </div>
+          </div>
+          <p v-if="schedulingInfo.schedulingReason" class="scheduling-info-reason">{{ schedulingInfo.schedulingReason }}</p>
+        </div>
+
         <el-form-item label="备注">
           <el-input v-model="editForm.remark" type="textarea" :rows="2" maxlength="200" show-word-limit placeholder="可选" />
         </el-form-item>
@@ -258,6 +274,21 @@
               <StatusTag :status="currentOrder.status" />
             </span>
           </div>
+        </div>
+
+        <div v-if="hasSchedulingInfo" class="scheduling-info-block scheduling-info-block--detail">
+          <div class="scheduling-info-block__title">AI 排产信息</div>
+          <div class="scheduling-info-grid">
+            <div v-if="schedulingInfo.scheduledStartTime" class="scheduling-info-item">
+              <span class="scheduling-info-item__label">建议开工</span>
+              <strong>{{ schedulingInfo.scheduledStartTime }}</strong>
+            </div>
+            <div v-if="schedulingInfo.estimatedHours" class="scheduling-info-item">
+              <span class="scheduling-info-item__label">预计工时</span>
+              <strong>{{ schedulingInfo.estimatedHours }} 小时</strong>
+            </div>
+          </div>
+          <p v-if="schedulingInfo.schedulingReason" class="scheduling-info-reason">{{ schedulingInfo.schedulingReason }}</p>
         </div>
 
         <el-form
@@ -436,6 +467,20 @@ const editForm = reactive<{
   remark: ''
 })
 
+const schedulingInfo = reactive({
+  scheduledStartTime: '',
+  estimatedHours: '',
+  schedulingReason: ''
+})
+
+const hasSchedulingInfo = computed(() =>
+  Boolean(
+    schedulingInfo.scheduledStartTime ||
+      schedulingInfo.estimatedHours ||
+      schedulingInfo.schedulingReason
+  )
+)
+
 const progressForm = reactive({ progress: 0, currentProcess: '', remark: '' })
 
 const assignRules: FormRules = { teamId: [{ required: true, message: '请选择班组', trigger: 'change' }], priority: [{ required: true, message: '请选择优先级', trigger: 'change' }] }
@@ -536,6 +581,7 @@ async function submitCreate() {
 async function openEditDialog(row: WorkOrderRow) {
   editingId.value = row.id
   editingCode.value = row.code
+  resetSchedulingInfo()
   editDialogVisible.value = true
   try {
     const api = await import('@/api/workOrders')
@@ -548,6 +594,7 @@ async function openEditDialog(row: WorkOrderRow) {
       teamId: detail.teamId != null ? Number(detail.teamId) : undefined,
       remark: String(detail.remark ?? row.remark ?? '')
     })
+    loadSchedulingInfo(detail)
   } catch (error) {
     console.error(error)
     Object.assign(editForm, {
@@ -637,7 +684,23 @@ async function submitAssign() {
 
 async function claimOrder(row: WorkOrderRow) { actionLoading.value = `claim-${row.id}`; try { const api = await import('@/api/workOrders'); await api.claimWorkOrder(row.id); ElMessage.success('工单已认领'); loadOrders() } catch (error) { console.error(error); ElMessage.error('认领失败') } finally { actionLoading.value = '' } }
 
-function openProgressDrawer(row: WorkOrderRow) { currentOrder.value = row; Object.assign(progressForm, { progress: row.progress, currentProcess: row.currentProcess, remark: row.remark ?? '' }); progressDrawerVisible.value = true }
+async function openProgressDrawer(row: WorkOrderRow) {
+  currentOrder.value = row
+  resetSchedulingInfo()
+  Object.assign(progressForm, {
+    progress: row.progress,
+    currentProcess: row.currentProcess,
+    remark: row.remark ?? ''
+  })
+  progressDrawerVisible.value = true
+  try {
+    const api = await import('@/api/workOrders')
+    const detail = (await api.getWorkOrderDetail(row.id)) as unknown as Record<string, unknown>
+    loadSchedulingInfo(detail)
+  } catch (error) {
+    console.error(error)
+  }
+}
 
 async function submitProgress() { const valid = await progressFormRef.value?.validate().catch(() => false); if (!valid || !currentOrder.value) return; submittingProgress.value = true; try { const api = await import('@/api/workOrders'); await api.updateWorkOrderProgress(currentOrder.value.id, { progress: progressForm.progress, processName: progressForm.currentProcess, remark: progressForm.remark }); ElMessage.success('进度已更新'); progressDrawerVisible.value = false; loadOrders() } catch (error) { console.error(error); ElMessage.error('更新进度失败') } finally { submittingProgress.value = false } }
 
@@ -708,6 +771,22 @@ function formatDeadlineForPicker(value: string) {
   return normalized.substring(0, 19)
 }
 
+function resetSchedulingInfo() {
+  Object.assign(schedulingInfo, {
+    scheduledStartTime: '',
+    estimatedHours: '',
+    schedulingReason: ''
+  })
+}
+
+function loadSchedulingInfo(detail: Record<string, unknown>) {
+  Object.assign(schedulingInfo, {
+    scheduledStartTime: formatDeadlineForPicker(String(detail.scheduledStartTime ?? '')),
+    estimatedHours: detail.estimatedHours != null && detail.estimatedHours !== '' ? String(detail.estimatedHours) : '',
+    schedulingReason: String(detail.schedulingReason ?? '').trim()
+  })
+}
+
 </script>
 
 
@@ -727,6 +806,49 @@ function formatDeadlineForPicker(value: string) {
 .toolbar__select { width: 140px; }
 
 .full-width { width: 100%; }
+
+.scheduling-info-block {
+  margin: 4px 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.scheduling-info-block--detail {
+  margin: 0 0 18px;
+}
+
+.scheduling-info-block__title {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #4f46e5;
+}
+
+.scheduling-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.scheduling-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scheduling-info-item__label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.scheduling-info-reason {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #64748b;
+}
 
 .table-pagination {
   display: flex;

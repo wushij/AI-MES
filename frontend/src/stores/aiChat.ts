@@ -4,7 +4,8 @@ import {
   deleteChatSession,
   getChatMessages,
   getChatSessions,
-  sendChatMessage
+  sendChatMessage,
+  sendChatMessageStream
 } from '@/api/ai'
 import { getCozeWelcomeMessage } from '@/api/coze'
 import { isAbortError } from '@/api/request'
@@ -53,7 +54,7 @@ function isWelcomeOnly(messages: ChatMessage[]) {
 
 function sessionTitleFromMessage(message: string) {
   const text = message.trim()
-  return text.length > 20 ? text.slice(0, 20) : text
+  return text.length > 20 ? `${text.slice(0, 20)}…` : text
 }
 
 function readCurrentUserId(): string | number | null {
@@ -210,9 +211,11 @@ export const useAiChatStore = defineStore('aiChat', () => {
     return session
   }
 
-  async function loadSessions() {
+  async function loadSessions(silent = false) {
     if (!syncOwnerUser()) return
-    historyLoading.value = true
+    if (!silent) {
+      historyLoading.value = true
+    }
     try {
       type SessionRow = { id: string; title: string; fullTitle?: string; updatedAt: string }
       const remoteSessions = normalizeList<SessionRow>(await getChatSessions()).map((item) => ({
@@ -232,7 +235,9 @@ export const useAiChatStore = defineStore('aiChat', () => {
       )
       sessions.value.forEach(enrichSessionFullTitle)
     } finally {
-      historyLoading.value = false
+      if (!silent) {
+        historyLoading.value = false
+      }
     }
   }
 
@@ -403,15 +408,48 @@ export const useAiChatStore = defineStore('aiChat', () => {
     const controller = new AbortController()
     abortControllers.value = { ...abortControllers.value, [key]: controller }
 
+    let resolvedSessionId = sessionId
     try {
-      const response = await sendChatMessage(
+      await sendChatMessageStream(
         { sessionId, message: content },
+        (eventObj) => {
+          const { event, data } = eventObj
+          
+          if (event === 'metadata') {
+            try {
+              const meta = JSON.parse(data)
+              if (meta.sessionId) {
+                resolvedSessionId = meta.sessionId
+              }
+            } catch (ignored) {}
+          } else if (event === 'conversation.message.delta') {
+            try {
+              const payload = JSON.parse(data)
+              if (payload.type === 'answer' && payload.content) {
+                if (aiPlaceholder.loading) {
+                  aiPlaceholder.loading = false
+                }
+                aiPlaceholder.content += payload.content
+                setSessionMessages(key, [...targetMessages])
+              }
+            } catch (ignored) {}
+          } else if (event === 'error') {
+            try {
+              const payload = JSON.parse(data)
+              throw new Error(payload.message || '对话出错')
+            } catch (e) {
+              throw e
+            }
+          }
+        },
         { signal: controller.signal }
       )
-      aiPlaceholder.loading = false
-      aiPlaceholder.content = String(response.reply ?? '助手未返回有效回复。')
 
-      const resolvedSessionId = response.sessionId ?? sessionId
+      aiPlaceholder.loading = false
+      if (!aiPlaceholder.content) {
+        aiPlaceholder.content = '助手未返回有效回复。'
+      }
+
       activeSessionId.value = resolvedSessionId
 
       const session = sessions.value.find((item) => String(item.id) === String(sessionId))
@@ -441,7 +479,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
         setSessionMessages(key, [...targetMessages])
       }
 
-      await loadSessions()
+      await loadSessions(true)
       if (String(activeSessionId.value) !== String(resolvedSessionId)) {
         activeSessionId.value = resolvedSessionId
       }

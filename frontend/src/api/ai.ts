@@ -1,12 +1,13 @@
 export {
   sendCozeMessage,
+  sendCozeMessageStream,
   getCozeConfig,
   saveCozeConfig,
   getSchedulingSuggestions
 } from './coze'
 
 import request from './request'
-import { sendCozeMessage } from './coze'
+import { sendCozeMessage, sendCozeMessageStream, type StreamEvent } from './coze'
 import { normalizeList } from '@/utils/normalizeList'
 
 export async function getChatSessions() {
@@ -54,7 +55,7 @@ export async function getChatSessions() {
 
 function sessionTitleFromMessage(message: string) {
   const text = message.trim()
-  return text.length > 20 ? text.slice(0, 20) : text
+  return text.length > 20 ? `${text.slice(0, 20)}…` : text
 }
 
 export async function createChatSession(payload: { title?: string }) {
@@ -104,6 +105,21 @@ export async function sendChatMessage(
       message: payload.message,
       sessionId: payload.sessionId != null ? String(payload.sessionId) : undefined
     },
+    options
+  )
+}
+
+export async function sendChatMessageStream(
+  payload: { sessionId?: string | number | null; message: string },
+  onEvent: (event: StreamEvent) => void,
+  options?: { signal?: AbortSignal }
+) {
+  return sendCozeMessageStream(
+    {
+      message: payload.message,
+      sessionId: payload.sessionId != null ? String(payload.sessionId) : undefined
+    },
+    onEvent,
     options
   )
 }

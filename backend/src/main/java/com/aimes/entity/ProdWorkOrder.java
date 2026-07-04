@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
@@ -22,6 +23,10 @@ public class ProdWorkOrder {
     private String status;
     private Integer priority;
     private LocalDateTime deadline;
+    private LocalDateTime scheduledStartTime;
+    private BigDecimal estimatedHours;
+    private Integer schedulingRank;
+    private String schedulingReason;
     private Long claimUserId;
     private String remark;
     private LocalDateTime createdTime;

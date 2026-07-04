@@ -22,6 +22,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.MediaType;
+
 import java.util.List;
 import java.util.Map;
 
@@ -59,6 +62,16 @@ public class CozeController {
         return Result.ok(cozeService.chat(request));
     }
 
+    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
+    public void chatStream(@Valid @RequestBody CozeChatRequest request, HttpServletResponse response) {
+        response.setContentType("text/event-stream");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("Connection", "keep-alive");
+        cozeService.chatStream(request, response);
+    }
+
     @GetMapping("/chat/history")
     @SaCheckRole(value = {"admin", "supervisor", "worker"}, mode = SaMode.OR)
     public Result<List<Map<String, Object>>> history(@RequestParam(required = false) String sessionId) {
@@ -75,6 +88,17 @@ public class CozeController {
     @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
     public Result<Map<String, Object>> scheduling(@Valid @RequestBody CozeSchedulingRequest request) {
         return Result.ok(cozeService.scheduling(request));
+    }
+
+    @GetMapping("/scheduling/context")
+    @SaCheckRole(value = {"admin", "supervisor"}, mode = SaMode.OR)
+    public Result<Map<String, Object>> schedulingContext(@RequestParam String workOrderIds) {
+        List<Long> ids = java.util.Arrays.stream(workOrderIds.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(Long::valueOf)
+                .toList();
+        return Result.ok(cozeService.schedulingContext(ids));
     }
 
     @PostMapping("/scheduling/apply")

@@ -3,6 +3,7 @@ package com.aimes.service;
 import com.aimes.common.BusinessException;
 import com.aimes.dto.Requests.SchedulingApplyRequest;
 import com.aimes.dto.Requests.SchedulingDispatchItem;
+import com.aimes.dto.Requests.SchedulingPriorityItem;
 import com.aimes.dto.Requests.WorkOrderAssignRequest;
 import com.aimes.dto.Requests.WorkOrderCreateRequest;
 import com.aimes.dto.Requests.WorkOrderProgressRequest;
@@ -25,12 +26,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class WorkOrderService {
@@ -306,6 +312,7 @@ public class WorkOrderService {
     public Map<String, Object> applySchedulingSuggestions(SchedulingApplyRequest request) {
         List<Map<String, Object>> applied = new ArrayList<>();
         List<Map<String, Object>> skipped = new ArrayList<>();
+        Map<String, SchedulingPriorityItem> priorityMap = buildSchedulingPriorityMap(request);
 
         for (SchedulingDispatchItem item : request.getDispatches()) {
             String orderNo = resolveWorkOrderNo(item);
@@ -328,11 +335,36 @@ public class WorkOrderService {
                 continue;
             }
 
+            SchedulingPriorityItem priorityItem = priorityMap.get(orderNo.trim());
+            Integer suggestedPriority = resolveSchedulingPriority(priorityItem);
+            Integer previousPriority = order.getPriority();
+            Long previousTeamId = order.getTeamId();
+
             order.setTeamId(team.getId());
             order.setStatus("assigned");
-            order.setRemark(buildSchedulingRemark(order.getRemark(), request, item));
+            if (suggestedPriority != null) {
+                order.setPriority(suggestedPriority);
+            }
+            order.setScheduledStartTime(parseSchedulingStartTime(item.getStartTime(), request.getPlanDate()));
+            order.setEstimatedHours(parseEstimatedHours(item.getHours()));
+            if (priorityItem != null) {
+                if (StringUtils.hasText(priorityItem.getReason())) {
+                    order.setSchedulingReason(priorityItem.getReason().trim());
+                }
+            }
+            order.setSchedulingRank(null);
+            order.setRemark(stripLegacyAiSchedulingRemark(order.getRemark()));
             prodWorkOrderMapper.updateById(order);
-            applied.add(toView(order));
+
+            Map<String, Object> appliedView = new LinkedHashMap<>(toView(order));
+            appliedView.put("teamChanged", !Objects.equals(previousTeamId, team.getId()));
+            appliedView.put("priorityChanged", suggestedPriority != null && !Objects.equals(previousPriority, suggestedPriority));
+            appliedView.put("suggestedStartTime", item.getStartTime());
+            appliedView.put("suggestedHours", item.getHours());
+            if (priorityItem != null) {
+                appliedView.put("priorityReason", priorityItem.getReason());
+            }
+            applied.add(appliedView);
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -340,6 +372,8 @@ public class WorkOrderService {
         result.put("skipped", skipped);
         result.put("appliedCount", applied.size());
         result.put("skippedCount", skipped.size());
+        result.put("planDate", request.getPlanDate());
+        result.put("summary", request.getSummary());
         return result;
     }
 
@@ -419,37 +453,100 @@ public class WorkOrderService {
                 .last("limit 1"));
     }
 
-    private String buildSchedulingRemark(String existingRemark, SchedulingApplyRequest request, SchedulingDispatchItem item) {
-        String base = StringUtils.hasText(existingRemark) ? existingRemark.trim() : "";
+    private String stripLegacyAiSchedulingRemark(String existingRemark) {
+        if (!StringUtils.hasText(existingRemark)) {
+            return existingRemark;
+        }
+        String base = existingRemark.trim();
         int aiIndex = base.indexOf("AI排产建议");
-        if (aiIndex >= 0) {
-            base = base.substring(0, aiIndex).trim();
-            while (base.endsWith("；") || base.endsWith(";")) {
-                base = base.substring(0, base.length() - 1).trim();
-            }
+        if (aiIndex < 0) {
+            return base;
         }
-        String aiNote = buildAiSchedulingNote(request, item);
-        if (!StringUtils.hasText(base)) {
-            return aiNote;
+        base = base.substring(0, aiIndex).trim();
+        while (base.endsWith("；") || base.endsWith(";")) {
+            base = base.substring(0, base.length() - 1).trim();
         }
-        return base + "；" + aiNote;
+        return base;
     }
 
-    private String buildAiSchedulingNote(SchedulingApplyRequest request, SchedulingDispatchItem item) {
-        StringBuilder builder = new StringBuilder("AI排产建议");
-        if (request.getPlanDate() != null) {
-            builder.append("，计划日 ").append(request.getPlanDate());
+    private LocalDateTime parseSchedulingStartTime(String raw, LocalDate planDate) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
         }
-        if (StringUtils.hasText(item.getStartTime())) {
-            builder.append("，建议开工 ").append(item.getStartTime().trim());
+        String text = raw.trim();
+        DateTimeFormatter full = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        DateTimeFormatter minute = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        try {
+            if (text.length() == 16) {
+                return LocalDateTime.parse(text, minute);
+            }
+            if (text.length() >= 19) {
+                return LocalDateTime.parse(text.substring(0, 19), full);
+            }
+            if (text.matches("\\d{2}:\\d{2}")) {
+                LocalDate date = planDate != null ? planDate : LocalDate.now();
+                return LocalDateTime.parse(date + " " + text, minute);
+            }
+        } catch (DateTimeParseException ignored) {
+            return null;
         }
-        if (StringUtils.hasText(item.getHours())) {
-            builder.append("，预计 ").append(item.getHours().trim()).append(" 小时");
+        return null;
+    }
+
+    private BigDecimal parseEstimatedHours(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
         }
-        if (StringUtils.hasText(item.getTeamName())) {
-            builder.append("，班组 ").append(item.getTeamName().trim());
+        String digits = raw.replaceAll("[^\\d.]", "");
+        if (!StringUtils.hasText(digits)) {
+            return null;
         }
-        return builder.toString();
+        try {
+            return new BigDecimal(digits).setScale(2, RoundingMode.HALF_UP);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private Map<String, SchedulingPriorityItem> buildSchedulingPriorityMap(SchedulingApplyRequest request) {
+        Map<String, SchedulingPriorityItem> map = new LinkedHashMap<>();
+        if (request.getPriorities() == null) {
+            return map;
+        }
+        for (SchedulingPriorityItem item : request.getPriorities()) {
+            String orderNo = resolvePriorityWorkOrderNo(item);
+            if (StringUtils.hasText(orderNo)) {
+                map.put(orderNo.trim(), item);
+            }
+        }
+        return map;
+    }
+
+    private String resolvePriorityWorkOrderNo(SchedulingPriorityItem item) {
+        if (StringUtils.hasText(item.getWorkOrderCode())) {
+            return item.getWorkOrderCode().trim();
+        }
+        return StringUtils.hasText(item.getWorkOrderNo()) ? item.getWorkOrderNo().trim() : null;
+    }
+
+    private Integer resolveSchedulingPriority(SchedulingPriorityItem item) {
+        if (item == null) {
+            return null;
+        }
+        if (item.getPriority() != null && item.getPriority() >= 1 && item.getPriority() <= 3) {
+            return item.getPriority();
+        }
+        if (!StringUtils.hasText(item.getPriorityLabel())) {
+            return null;
+        }
+        String label = item.getPriorityLabel().trim();
+        if (label.contains("高")) {
+            return 1;
+        }
+        if (label.contains("低")) {
+            return 3;
+        }
+        return 2;
     }
 
     private void initProcessRecords(Long workOrderId) {
@@ -483,6 +580,10 @@ public class WorkOrderService {
         view.put("status", order.getStatus());
         view.put("priority", order.getPriority());
         view.put("deadline", order.getDeadline());
+        view.put("scheduledStartTime", order.getScheduledStartTime());
+        view.put("estimatedHours", order.getEstimatedHours());
+        view.put("schedulingRank", order.getSchedulingRank());
+        view.put("schedulingReason", order.getSchedulingReason());
         view.put("claimUserId", order.getClaimUserId());
         view.put("remark", order.getRemark());
         view.put("exceptionCount", exceptionCount);

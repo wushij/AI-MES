@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getCozeWelcomeMessage, sendCozeMessage } from '@/api/coze'
+import { getCozeWelcomeMessage, sendCozeMessageStream } from '@/api/coze'
 import { isAbortError } from '@/api/request'
 import type { CozeChatMessage } from '@/types'
 
@@ -82,6 +82,10 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.push(message)
   }
 
+  function findMessage(id: string) {
+    return messages.value.find((item) => item.id === id)
+  }
+
   async function sendMessage(content: string) {
     const text = content.trim()
     if (!text || sending.value) return
@@ -106,35 +110,74 @@ export const useChatStore = defineStore('chat', () => {
     sending.value = true
     abortController = new AbortController()
     const signal = abortController.signal
+    let resolvedSessionId = conversationId.value
     try {
-      const response = await sendCozeMessage(
+      await sendCozeMessageStream(
         {
           message: text,
-          sessionId: conversationId.value || undefined
+          sessionId: resolvedSessionId || undefined
+        },
+        (eventObj) => {
+          const { event, data } = eventObj
+          if (event === 'metadata') {
+            try {
+              const meta = JSON.parse(data)
+              if (meta.sessionId) {
+                resolvedSessionId = meta.sessionId
+              }
+            } catch (ignored) {}
+          } else if (event === 'conversation.message.delta') {
+            try {
+              const payload = JSON.parse(data)
+              if (payload.type === 'answer' && payload.content) {
+                const assistantMessage = findMessage(pendingId)
+                if (!assistantMessage) return
+                assistantMessage.pending = false
+                assistantMessage.content += payload.content
+              }
+            } catch (ignored) {}
+          } else if (event === 'error') {
+            try {
+              const payload = JSON.parse(data)
+              throw new Error(payload.message || '对话出错')
+            } catch (e) {
+              throw e
+            }
+          }
         },
         { signal }
       )
-      conversationId.value = response.sessionId ?? response.conversationId ?? conversationId.value
-      messages.value = messages.value.filter((item) => item.id !== pendingId)
-      pushMessage({
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: response.reply,
-        createdAt: new Date().toISOString()
-      })
+
+      conversationId.value = resolvedSessionId
+      const assistantMessage = findMessage(pendingId)
+      if (assistantMessage) {
+        assistantMessage.pending = false
+        if (!assistantMessage.content) {
+          assistantMessage.content = '助手未返回有效回复。'
+        }
+      }
     } catch (error) {
-      messages.value = messages.value.filter((item) => item.id !== pendingId)
-      const message = error instanceof Error ? error.message : ''
-      pushMessage({
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: isAbortError(error)
-          ? '已停止生成'
-          : message.includes('timeout') || message.includes('超时')
+      const assistantMessage = findMessage(pendingId)
+      if (assistantMessage) {
+        assistantMessage.pending = false
+        const errorMsg = error instanceof Error ? error.message : ''
+        if (isAbortError(error)) {
+          if (!assistantMessage.content) {
+            assistantMessage.content = '已停止生成'
+          } else {
+            assistantMessage.content += '\n\n*(已停止生成)*'
+          }
+        } else {
+          const errorText = errorMsg.includes('timeout') || errorMsg.includes('超时')
             ? 'AI 响应超时（Coze 处理较慢，约需 30～90 秒），请稍后重试。'
-            : 'AI 服务暂时不可用，请稍后重试或切换到独立 AI 页面。',
-        createdAt: new Date().toISOString()
-      })
+            : 'AI 服务暂时不可用，请稍后重试或切换到独立 AI 页面。'
+          if (assistantMessage.content) {
+            assistantMessage.content += `\n\n*(${errorText})*`
+          } else {
+            assistantMessage.content = errorText
+          }
+        }
+      }
     } finally {
       abortController = null
       sending.value = false

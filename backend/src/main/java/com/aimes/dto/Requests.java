@@ -183,6 +183,9 @@ public final class Requests {
         private LocalDate planDate;
         @NotEmpty(message = "工单列表不能为空")
         private List<Long> workOrderIds;
+        private Boolean materialConstraint;
+        private Boolean deviceConstraint;
+        private Boolean teamConstraint;
     }
 
     @Data
@@ -195,8 +198,20 @@ public final class Requests {
     }
 
     @Data
+    public static class SchedulingPriorityItem {
+        private Integer rank;
+        private String workOrderCode;
+        private String workOrderNo;
+        private Integer priority;
+        private String priorityLabel;
+        private String reason;
+    }
+
+    @Data
     public static class SchedulingApplyRequest {
         private LocalDate planDate;
+        private String summary;
+        private List<SchedulingPriorityItem> priorities;
         @NotEmpty(message = "派工建议不能为空")
         private List<SchedulingDispatchItem> dispatches;
     }

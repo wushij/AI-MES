@@ -2,74 +2,112 @@
   <div class="view-page ai-chat-page">
     <PageHeader title="AI 客服" subtitle="咨询工单状态、SOP、异常处理及生产相关信息。" />
 
-    <div class="chat-layout">
-      <el-card shadow="hover" class="history-panel">
-        <template #header>
-          <div class="panel-header">
-            <span>对话历史</span>
-            <el-button class="new-chat-btn" type="primary" @click="startConversation()">新对话</el-button>
-          </div>
-        </template>
-
-        <div v-if="historyLoading" class="history-loading">
-          <el-skeleton v-for="item in 5" :key="item" animated>
-            <template #template>
-              <el-skeleton-item variant="rect" style="height: 58px; border-radius: 16px; width: 100%" />
-            </template>
-          </el-skeleton>
-        </div>
-
-        <el-empty v-else-if="!sessions.length" description="暂无历史对话" />
-
-        <div v-else class="history-list">
-          <div
-            v-for="session in visibleSessions"
-            :key="session.id"
-            class="history-item"
-            :class="{ 'history-item--active': session.id === activeSessionId }"
-          >
-            <button class="history-item__main" @click="selectSession(session)">
-              <el-tooltip
-                :content="session.fullTitle || session.title"
-                placement="right"
-                :show-after="300"
-                :disabled="!session.fullTitle"
+    <div class="chat-layout" :class="{ 'chat-layout--collapsed': historyCollapsed }">
+      <aside class="history-aside" :class="{ 'history-aside--collapsed': historyCollapsed }">
+        <div class="history-aside__surface">
+          <header class="history-aside__header">
+            <div v-show="!historyCollapsed" class="history-aside__heading">
+              <el-icon class="history-aside__heading-icon"><ChatLineRound /></el-icon>
+              <span>对话历史</span>
+            </div>
+            <div class="history-aside__actions">
+              <button
+                v-if="!historyCollapsed"
+                type="button"
+                class="history-aside__fold-btn"
+                @click="toggleHistoryCollapsed(true)"
               >
-                <span class="history-item__title">
-                  {{ session.title }}
-                  <span v-if="chatStore.pendingSessions[String(session.id)]" class="history-item__pending">回复中</span>
-                </span>
-              </el-tooltip>
-              <span class="history-item__time">{{ formatSessionTime(session.updatedAt) }}</span>
-            </button>
-            <el-button
-              link
-              type="danger"
-              class="history-item__delete"
-              :loading="deletingSessionId === session.id"
-              @click="removeSession(session)"
-            >
-              删除
-            </el-button>
-          </div>
-          <button
-            v-if="hiddenSessionCount > 0"
-            type="button"
-            class="history-load-more"
-            @click="historyExpanded = !historyExpanded"
-          >
-            {{ historyExpanded ? '收起' : `更多（${hiddenSessionCount}）` }}
-          </button>
-        </div>
-      </el-card>
+                <el-icon><Fold /></el-icon>
+              </button>
+              <button type="button" class="history-aside__new-btn" @click="startConversation()">
+                <el-icon><Plus /></el-icon>
+                <span v-show="!historyCollapsed">新对话</span>
+              </button>
+            </div>
+          </header>
 
+          <div v-show="!historyCollapsed" class="history-aside__body">
+            <div v-if="historyLoading" class="history-loading">
+              <el-skeleton v-for="item in 5" :key="item" animated>
+                <template #template>
+                  <el-skeleton-item variant="rect" style="height: 58px; border-radius: 16px; width: 100%" />
+                </template>
+              </el-skeleton>
+            </div>
+
+            <el-empty v-else-if="!sessions.length" description="暂无历史对话" :image-size="72" />
+
+            <div v-else class="history-list">
+              <div
+                v-for="session in visibleSessions"
+                :key="session.id"
+                class="history-item"
+                :class="{ 'history-item--active': session.id === activeSessionId }"
+              >
+                <button class="history-item__main" @click="selectSession(session)">
+                  <span class="history-item__title-container">
+                    <el-tooltip
+                      :content="session.fullTitle || session.title"
+                      placement="right"
+                      :show-after="300"
+                      :disabled="!shouldShowSessionTitleTooltip(session)"
+                    >
+                      <span
+                        class="history-item__title"
+                        :ref="(el) => bindSessionTitleEl(session.id, el as HTMLElement | null)"
+                      >
+                        {{ session.title }}
+                      </span>
+                    </el-tooltip>
+                    <span v-if="chatStore.pendingSessions[String(session.id)]" class="history-item__pending">
+                      <el-icon class="is-loading" style="font-size: 11px;"><Loading /></el-icon>
+                    </span>
+                  </span>
+                  <span class="history-item__time">{{ formatSessionTime(session.updatedAt) }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="history-item__delete"
+                  :disabled="deletingSessionId === session.id"
+                  @click.stop="removeSession(session)"
+                >
+                  <el-icon v-if="deletingSessionId === session.id" class="history-item__delete-loading"><Loading /></el-icon>
+                  <el-icon v-else class="history-item__delete-icon"><Delete /></el-icon>
+                </button>
+              </div>
+              <button
+                v-if="hiddenSessionCount > 0"
+                type="button"
+                class="history-load-more"
+                @click="historyExpanded = !historyExpanded"
+              >
+                {{ historyExpanded ? '收起' : `更多（${hiddenSessionCount}）` }}
+              </button>
+            </div>
+          </div>
+
+          <div v-show="historyCollapsed" class="history-aside__rail">
+            <button type="button" class="history-rail-btn" @click="toggleHistoryCollapsed(false)">
+              <el-icon><Memo /></el-icon>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <section class="chat-main">
       <el-card shadow="hover" class="chat-panel">
         <template #header>
           <div class="panel-header">
-            <div>
-              <div class="chat-title">{{ activeSession?.title || '新对话' }}</div>
-              <div class="chat-subtitle">AI-MES 助手可协助查询工单、异常、物料及排产相关信息。</div>
+            <div class="chat-panel__title-wrap">
+              <div>
+                <div class="chat-title">{{ activeSession?.title || '新对话' }}</div>
+                <div class="chat-subtitle">AI-MES 助手可协助查询工单、异常、物料及排产相关信息。</div>
+              </div>
             </div>
+            <el-button v-if="historyCollapsed" class="chat-panel__new-btn" type="primary" round @click="startConversation()">
+              <el-icon><Plus /></el-icon>
+              新对话
+            </el-button>
           </div>
         </template>
 
@@ -133,6 +171,7 @@
           </el-button>
         </div>
       </el-card>
+      </section>
     </div>
   </div>
 </template>
@@ -141,8 +180,9 @@
 
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ChatLineRound, Delete, Fold, Loading, Memo, Plus } from '@element-plus/icons-vue'
 import { storeToRefs } from 'pinia'
-import { computed, nextTick, onActivated, onMounted, ref } from 'vue'
+import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { renderChatMarkdown } from '@/utils/chatMarkdown'
 import { getChatQuickQuestions } from '@/utils/chatQuickQuestions'
@@ -164,10 +204,77 @@ const {
 } = storeToRefs(chatStore)
 
 const HISTORY_PREVIEW_COUNT = 8
+const HISTORY_COLLAPSED_KEY = 'ai-mes-chat-history-collapsed'
 
 const draftMessage = ref('')
 const messageViewportRef = ref<HTMLDivElement>()
 const historyExpanded = ref(false)
+const historyCollapsed = ref(readHistoryCollapsedPreference())
+const sessionTitleOverflow = ref<Record<string, boolean>>({})
+const sessionTitleObservers = new Map<string, ResizeObserver>()
+const sessionTitleElements = new Map<string, HTMLElement>()
+
+function measureSessionTitleOverflow(key: string, el: HTMLElement) {
+  const overflow = el.scrollWidth > el.clientWidth
+  if (sessionTitleOverflow.value[key] !== overflow) {
+    sessionTitleOverflow.value = { ...sessionTitleOverflow.value, [key]: overflow }
+  }
+}
+
+function remeasureAllSessionTitles() {
+  sessionTitleElements.forEach((el, key) => measureSessionTitleOverflow(key, el))
+}
+
+function bindSessionTitleEl(sessionId: string | number, el: HTMLElement | null) {
+  const key = String(sessionId)
+  const existing = sessionTitleObservers.get(key)
+  if (existing) {
+    existing.disconnect()
+    sessionTitleObservers.delete(key)
+  }
+  if (!el) {
+    sessionTitleElements.delete(key)
+    if (key in sessionTitleOverflow.value) {
+      const next = { ...sessionTitleOverflow.value }
+      delete next[key]
+      sessionTitleOverflow.value = next
+    }
+    return
+  }
+
+  sessionTitleElements.set(key, el)
+  const measure = () => measureSessionTitleOverflow(key, el)
+
+  measure()
+  requestAnimationFrame(measure)
+  const observer = new ResizeObserver(measure)
+  observer.observe(el)
+  sessionTitleObservers.set(key, observer)
+}
+
+function isSessionTitleOverflow(sessionId: string | number) {
+  return Boolean(sessionTitleOverflow.value[String(sessionId)])
+}
+
+function shouldShowSessionTitleTooltip(session: ChatSession) {
+  if (isSessionTitleOverflow(session.id)) return true
+  const full = session.fullTitle?.trim()
+  if (!full) return false
+  const shown = session.title?.trim().replace(/…$/, '') ?? ''
+  return full.length > shown.length
+}
+
+function readHistoryCollapsedPreference() {
+  try {
+    return localStorage.getItem(HISTORY_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function toggleHistoryCollapsed(next?: boolean) {
+  historyCollapsed.value = typeof next === 'boolean' ? next : !historyCollapsed.value
+}
 
 const quickQuestions = computed(() =>
   getChatQuickQuestions(
@@ -196,6 +303,12 @@ onMounted(async () => {
   }
   await nextTick()
   scrollToBottom()
+})
+
+onUnmounted(() => {
+  sessionTitleObservers.forEach((observer) => observer.disconnect())
+  sessionTitleObservers.clear()
+  sessionTitleElements.clear()
 })
 
 onActivated(async () => {
@@ -295,17 +408,257 @@ function formatSessionTime(value: string) {
 function renderMarkdown(text: string) {
   return renderChatMarkdown(text)
 }
+
+watch(
+  () => messages.value.map((m) => m.content).join('|'),
+  async () => {
+    await nextTick()
+    scrollToBottom()
+  }
+)
+
+watch(historyCollapsed, (collapsed) => {
+  try {
+    localStorage.setItem(HISTORY_COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    /* ignore storage errors */
+  }
+})
+
+watch(
+  () => [sessions.value.length, historyExpanded.value, historyCollapsed.value] as const,
+  async () => {
+    await nextTick()
+    requestAnimationFrame(remeasureAllSessionTitles)
+  }
+)
 </script>
 
 
 
 <style scoped>
 
-.ai-chat-page { display: flex; flex-direction: column; gap: 16px; }
+.ai-chat-page {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: calc(100vh - 100px);
+  min-height: 0;
+  overflow: hidden;
+}
 
-.chat-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; min-height: 720px; }
+.ai-chat-page :deep(.page-banner) {
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
 
-.history-panel, .chat-panel { border-radius: 24px; }
+.chat-layout {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.history-aside {
+  position: relative;
+  flex: 0 0 256px;
+  width: 256px;
+  min-width: 0;
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), flex-basis 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.history-aside--collapsed {
+  flex-basis: 60px;
+  width: 60px;
+}
+
+.history-aside__surface {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 255, 0.96) 100%);
+  box-shadow: 0 16px 40px rgba(79, 70, 229, 0.06);
+  overflow: hidden;
+}
+
+.history-aside__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 12px 10px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.history-aside--collapsed .history-aside__header {
+  flex-direction: column;
+  justify-content: center;
+  padding: 14px 10px;
+}
+
+.history-aside__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.history-aside--collapsed .history-aside__actions {
+  flex-direction: column;
+}
+
+.history-aside__fold-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(99, 102, 241, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.history-aside__fold-btn:hover {
+  color: #4f46e5;
+  border-color: rgba(99, 102, 241, 0.28);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.history-aside__heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #0f172a;
+  font-weight: 700;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.history-aside__heading-icon {
+  color: #4f46e5;
+  font-size: 18px;
+}
+
+.history-aside__new-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: linear-gradient(135deg, #4f46e5, #1677ff);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  flex-shrink: 0;
+}
+
+.history-aside--collapsed .history-aside__new-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 12px;
+}
+
+.history-aside__new-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.24);
+}
+
+.history-aside__body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 10px 10px 14px;
+  scrollbar-width: none;
+}
+
+.history-aside__body::-webkit-scrollbar {
+  display: none;
+}
+
+.history-aside__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px 16px;
+}
+
+.history-rail-btn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(99, 102, 241, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #4f46e5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.history-rail-btn:hover {
+  border-color: rgba(99, 102, 241, 0.32);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.chat-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
+  margin-left: 10px;
+  overflow: hidden;
+  transition: margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chat-panel :deep(.el-card__header) {
+  flex-shrink: 0;
+  padding: 12px 18px;
+  background: #fff;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.chat-panel :deep(.el-card__body) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  background: #fff;
+}
+
+.chat-layout--collapsed .chat-panel {
+  margin-left: 8px;
+}
+
+.chat-panel__title-wrap {
+  min-width: 0;
+}
+
+.chat-panel__new-btn {
+  flex-shrink: 0;
+}
 
 .panel-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 
@@ -328,23 +681,20 @@ function renderMarkdown(text: string) {
   background: rgba(99, 102, 241, 0.08);
 }
 
-.new-chat-btn {
-  min-width: 84px;
-}
-
-.history-panel :deep(.el-card__body) {
-  padding-top: 12px;
+.history-aside__body :deep(.el-empty) {
+  padding: 24px 0;
 }
 
 .history-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  position: relative;
+  display: block;
   width: 100%;
-  padding: 10px 12px;
+  min-width: 0;
+  padding: 8px 34px 8px 10px;
   border: 1px solid #eef2ff;
-  border-radius: 16px;
+  border-radius: 14px;
   background: #fff;
+  overflow: hidden;
   transition: all 0.2s ease;
 }
 
@@ -360,7 +710,9 @@ function renderMarkdown(text: string) {
   flex-direction: column;
   gap: 6px;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+  overflow: hidden;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -370,50 +722,130 @@ function renderMarkdown(text: string) {
 
 .history-item__main :deep(.el-tooltip__trigger) {
   display: block;
+  flex: 1 1 0%;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.history-item__title-container {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   width: 100%;
+  overflow: hidden;
 }
 
 .history-item__title {
+  display: block;
   color: #0f172a;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  width: 100%;
+  min-width: 0;
 }
 
 .history-item__pending {
   flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
   color: #4f46e5;
-  background: rgba(99, 102, 241, 0.1);
-  padding: 1px 6px;
-  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.08);
 }
 
 .history-item__time, .chat-subtitle, .message-meta, .quick-questions__label { color: #64748b; font-size: 12px; }
 
 .history-item__delete {
-  flex-shrink: 0;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #b8c2d4;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transform: scale(0.9);
+  transition: opacity 0.18s ease, transform 0.18s ease, color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.history-item__delete-icon {
+  font-size: 13px;
+}
+
+.history-item__delete:disabled {
+  cursor: wait;
+  opacity: 1;
+}
+
+.history-item__delete-loading {
+  font-size: 12px;
+  color: #94a3b8;
+  animation: history-delete-spin 0.8s linear infinite;
 }
 
 .history-item:hover .history-item__delete,
 .history-item--active .history-item__delete {
   opacity: 1;
+  transform: scale(1);
 }
 
-.chat-title { font-weight: 700; color: #0f172a; }
+.history-item__delete:hover:not(:disabled) {
+  color: #64748b;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+@keyframes history-delete-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.chat-title { font-weight: 700; color: #0f172a; line-height: 1.35; }
+
+.chat-subtitle { line-height: 1.45; margin-top: 2px; }
 
 .message-viewport {
-  height: 520px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 12px 8px;
+  padding: 10px 16px 12px;
+  background: #fafbfd;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+.message-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.message-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.message-viewport::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+}
+
+.message-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.65);
 }
 
 .message-row { display: flex; flex-direction: column; margin-bottom: 16px; }
@@ -421,7 +853,7 @@ function renderMarkdown(text: string) {
 .message-row--user { align-items: flex-end; }
 
 .message-bubble {
-  max-width: min(76%, 760px);
+  max-width: min(82%, 900px);
   padding: 14px 16px;
   border-radius: 18px;
   line-height: 1.75;
@@ -433,7 +865,7 @@ function renderMarkdown(text: string) {
   color: #1e293b;
   border-top-left-radius: 6px;
   align-self: flex-start;
-  width: min(76%, 760px);
+  width: min(82%, 900px);
 }
 
 .message-bubble--user {
@@ -505,13 +937,13 @@ function renderMarkdown(text: string) {
   transform: translateY(-1px);
 }
 
-.quick-questions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.quick-questions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; padding: 0 16px; background: #fff; }
 
 .composer {
   display: flex;
   align-items: flex-end;
   gap: 12px;
-  margin-top: 14px;
+  margin: 10px 16px 16px;
   padding: 8px 16px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -595,13 +1027,21 @@ function renderMarkdown(text: string) {
 
 .markdown-body :deep(p:last-child) { margin-bottom: 0; }
 
-.markdown-body :deep(hr) { border: none; border-top: 1px solid #e2e8f0; margin: 14px 0; }
+.markdown-body :deep(hr) { border: none; border-top: 1px solid #e2e8f0; margin: 10px 0; }
+
+.message-row:first-child {
+  margin-top: 0;
+}
+
+.message-meta {
+  margin-bottom: 6px;
+}
 
 .markdown-body :deep(table) {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  margin: 10px 0;
+  margin: 8px 0 0;
   font-size: 12px;
 }
 
@@ -659,7 +1099,38 @@ function renderMarkdown(text: string) {
 
 @keyframes bounce { 0%, 80%, 100% { transform: translateY(0); opacity: 0.5; } 40% { transform: translateY(-4px); opacity: 1; } }
 
-@media (max-width: 1100px) { .chat-layout { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) {
+  .ai-chat-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .chat-layout {
+    flex-direction: column;
+    flex: none;
+    min-height: auto;
+  }
+
+  .history-aside,
+  .history-aside--collapsed {
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  .history-aside--collapsed .history-aside__surface {
+    min-height: 72px;
+  }
+
+  .chat-panel {
+    margin-left: 0;
+    margin-top: 12px;
+  }
+
+  .chat-panel :deep(.el-card__body) {
+    height: 560px;
+    min-height: 560px;
+  }
+}
 
 </style>
 
