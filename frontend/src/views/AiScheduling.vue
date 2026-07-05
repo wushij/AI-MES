@@ -517,23 +517,29 @@
       </p>
 
       <el-table :data="applyDiffRows" stripe border size="small" :header-cell-style="tableHeaderStyle" max-height="360">
-        <el-table-column prop="workOrderCode" label="工单号" width="130" />
-        <el-table-column label="班组变更" min-width="150">
+        <el-table-column prop="workOrderCode" label="工单号" width="130" align="center" />
+        <el-table-column label="班组变更" min-width="150" align="center">
           <template #default="{ row }">
-            <span :class="{ 'diff-changed': row.teamChanged }">
+            <span v-if="row.teamChanged" class="diff-changed">
               {{ row.currentTeam }} → {{ row.suggestedTeam }}
             </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="优先级" min-width="110">
-          <template #default="{ row }">
-            <span :class="{ 'diff-changed': row.priorityChanged }">
-              {{ row.currentPriority }} → {{ row.suggestedPriority }}
+            <span v-else class="diff-neutral">
+              {{ row.suggestedTeam }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="suggestedStart" label="建议开工" min-width="150" />
-        <el-table-column prop="suggestedHours" label="工时" width="72" />
+        <el-table-column label="优先级" min-width="110" align="center">
+          <template #default="{ row }">
+            <span v-if="row.priorityChanged" class="diff-changed">
+              {{ row.currentPriority }} → {{ row.suggestedPriority }}
+            </span>
+            <span v-else class="diff-neutral">
+              {{ row.suggestedPriority }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="suggestedStart" label="建议开工" min-width="150" align="center" />
+        <el-table-column prop="suggestedHours" label="工时" width="72" align="center" />
       </el-table>
 
       <template #footer>
@@ -2061,6 +2067,10 @@ function goToWorkOrdersAfterApply() {
 .diff-changed {
   color: #dc2626;
   font-weight: 600;
+}
+
+.diff-neutral {
+  color: #64748b;
 }
 
 @media (max-width: 1100px) {

@@ -680,9 +680,6 @@ async function loadCreateProcessOptions(productId?: number | string, productName
       .map((item) => item.operationName)
       .filter(Boolean)
     createProcessOptions.value = names
-    if (resolved.isDefault && names.length) {
-      createProcessHint.value = `未配置专用工艺，将使用通用路线「${resolved.routeName || '默认路线'}」`
-    }
     if (names.length) {
       createForm.processName = names[0]
     }
