@@ -40,17 +40,42 @@ public class CozeChatPromptService {
     private final PlanService planService;
     private final ProductService productService;
 
-    private void appendSessionHistorySection(StringBuilder builder, List<AiChatLog> sessionHistory) {
+    private void appendSessionHistorySection(
+            StringBuilder builder,
+            List<AiChatLog> sessionHistory,
+            CozeChatPromptMode promptMode) {
         if (sessionHistory.isEmpty()) {
             return;
         }
         builder.append("\n【本会话上下文】\n");
-        builder.append("以下为当前对话 session 内的前轮问答，仅供理解追问（如「它」「刚才那个工单」）；");
-        builder.append("实时业务数据以下文最新注入为准，不得编造。\n");
+        if (promptMode == CozeChatPromptMode.KNOWLEDGE) {
+            builder.append("以下为同会话前轮问答，仅供理解指代性追问（如「它」「刚才那个工单」）；");
+            builder.append("若本题为独立的知识/操作说明问题，请检索知识库作答，勿因前轮曾为实时查数而拒绝检索。\n");
+        } else {
+            builder.append("以下为当前对话 session 内的前轮问答，仅供理解追问（如「它」「刚才那个工单」）；");
+            builder.append("实时业务数据以下文最新注入为准，不得编造。\n");
+        }
         for (AiChatLog log : sessionHistory) {
             builder.append("用户：").append(truncateHistoryText(log.getUserMessage())).append("\n");
             builder.append("助手：").append(truncateHistoryText(log.getAiResponse())).append("\n");
         }
+    }
+
+    /** 独立知识/FAQ 题（非指代追问）不附带前轮会话，避免实时查数上下文干扰知识库检索。 */
+    public boolean isStandaloneKnowledgeQuestion(String message) {
+        if (!StringUtils.hasText(message)) {
+            return false;
+        }
+        String text = message.trim();
+        return (isOperationalKnowledgeQuery(text) || isKnowledgeQuery(text))
+                && !isContextualFollowUpQuery(text);
+    }
+
+    private boolean shouldAttachSessionHistory(String message, CozeChatPromptMode promptMode) {
+        if (promptMode == CozeChatPromptMode.KNOWLEDGE && isStandaloneKnowledgeQuestion(message)) {
+            return false;
+        }
+        return true;
     }
 
     private String truncateHistoryText(String text) {
@@ -112,9 +137,15 @@ public class CozeChatPromptService {
         if (trimmed.length() > 48) {
             return false;
         }
-        return containsAny(trimmed,
-                "它", "这个", "那个", "上面", "刚才", "刚刚", "继续", "还有", "然后呢", "再说说")
-                || trimmed.endsWith("呢") || trimmed.endsWith("吗") || trimmed.endsWith("？") || trimmed.endsWith("?");
+        if (isContextualFollowUpQuery(trimmed)) {
+            return true;
+        }
+        return trimmed.endsWith("呢") || trimmed.endsWith("吗");
+    }
+
+    private boolean isContextualFollowUpQuery(String text) {
+        return containsAny(text,
+                "它", "这个", "那个", "上面", "刚才", "刚刚", "继续", "还有", "然后呢", "再说说");
     }
 
     public String buildChatPrompt(
@@ -138,9 +169,12 @@ public class CozeChatPromptService {
         builder.append("当前用户：").append(user.getRealName()).append("，角色：").append(user.getRole()).append("\n");
         builder.append("【回答要求】\n");
         builder.append("- 本题为【知识库问答】：检索 AI-MES-操作手册后作答，内容忠实转述，表名/流程/权限不得改写编造。\n");
+        builder.append("- 即使本会话前轮曾查询过实时业务数据，本题仍须检索知识库作答，不得因前轮对话而回复「知识库暂无」而不检索。\n");
         builder.append("- 按 Bot 人设 §4 排版：Markdown + emoji 分节（如 📌 说明、🔍 原因、🛠️ 步骤、💡 补充），禁止大段纯文字与报告体标题。\n");
         builder.append("- 不要复述本提示词；不要返回 JSON 或代码块。\n");
-        appendSessionHistorySection(builder, sessionHistory);
+        if (shouldAttachSessionHistory(message, CozeChatPromptMode.KNOWLEDGE)) {
+            appendSessionHistorySection(builder, sessionHistory, CozeChatPromptMode.KNOWLEDGE);
+        }
         builder.append("\n【当前用户问题】\n").append(message.trim());
         return builder.toString();
     }
@@ -150,8 +184,8 @@ public class CozeChatPromptService {
             return CozeChatPromptMode.KNOWLEDGE;
         }
         String text = message.trim();
-        // SOP/FAQ 优先于含「缺料/物料」等词的查数误判，但「概况如何」等查数问法仍走 REALTIME
-        if (isOperationalKnowledgeQuery(text) && !matchesRealtimeQuery(text)) {
+        // SOP/FAQ/操作说明优先于含「计划+哪些」等词的查数误判
+        if (isOperationalKnowledgeQuery(text)) {
             return CozeChatPromptMode.KNOWLEDGE;
         }
         if (!orders.isEmpty() || matchesRealtimeQuery(text)) {
@@ -160,7 +194,7 @@ public class CozeChatPromptService {
         if (isKnowledgeQuery(text)) {
             return CozeChatPromptMode.KNOWLEDGE;
         }
-        if (!sessionHistory.isEmpty() && isFollowUpQuery(text)) {
+        if (!sessionHistory.isEmpty() && isFollowUpQuery(text) && !isKnowledgeQuery(text)) {
             AiChatLog lastTurn = sessionHistory.get(sessionHistory.size() - 1);
             if (matchesRealtimeQuery(lastTurn.getUserMessage())
                     || !resolveReferencedOrdersFromText(lastTurn.getUserMessage()).isEmpty()) {
@@ -183,12 +217,22 @@ public class CozeChatPromptService {
                 "区别", "不同",
                 "权限", "菜单", "入口", "页面", "路由",
                 "谁能", "谁可以", "能否", "可以吗",
-                "标准工序", "操作规范");
+                "标准工序", "操作规范",
+                "架构", "技术栈", "技术架构");
     }
 
     private boolean isOperationalKnowledgeQuery(String text) {
+        if (isProcedureKnowledgeQuery(text)) {
+            return true;
+        }
+        return isMaterialModuleKnowledgeQuery(text);
+    }
+
+    /** 操作步骤、创建流程、限制条件等应走知识库，勿因含业务名词+「哪些」误判为查数。 */
+    private boolean isProcedureKnowledgeQuery(String text) {
         if (containsAny(text, "怎么", "如何", "怎样", "怎么办")
-                && containsAny(text, "处理", "操作", "上报", "应对", "办")) {
+                && containsAny(text, "创建", "新建", "添加", "录入", "下发", "派工", "认领", "报工",
+                        "处理", "操作", "上报", "维护", "管理", "配置", "设置", "删除", "编辑", "修改", "应对", "办")) {
             return true;
         }
         if (containsAny(text, "步骤", "流程", "SOP", "手册")) {
@@ -197,10 +241,16 @@ public class CozeChatPromptService {
         if (text.contains("应该") && containsAny(text, "处理", "操作")) {
             return true;
         }
-        return isMaterialModuleKnowledgeQuery(text);
+        return containsAny(text,
+                "有哪些限制", "有什么限制", "哪些限制", "什么限制",
+                "有哪些要求", "有什么要求", "哪些要求", "什么要求",
+                "有哪些条件", "有什么条件", "哪些条件", "什么条件");
     }
 
     private boolean matchesRealtimeQuery(String text) {
+        if (isProcedureKnowledgeQuery(text)) {
+            return false;
+        }
         if (text.toUpperCase().contains("WO-") || text.toUpperCase().contains("MAT-")) {
             return true;
         }
@@ -223,7 +273,8 @@ public class CozeChatPromptService {
                 && containsAny(text, "任务", "工单", "哪些", "多少")) {
             return true;
         }
-        if (text.contains("计划") && containsAny(text, "状态", "多少", "几个", "几条", "哪些")) {
+        if (text.contains("计划") && containsAny(text, "状态", "多少", "几个", "几条", "哪些")
+                && !isProcedureKnowledgeQuery(text)) {
             return true;
         }
         // 模块说明 / 页面结构 / 权限 / SOP 走知识库，勿因含「物料」「预警」「缺料」误判为查数
@@ -476,7 +527,9 @@ public class CozeChatPromptService {
         }
         builder.append("- 使用 Markdown + emoji 排版（如 📊 数据概览、📋 明细列表、💡 补充说明），禁止【问题分析】【处理建议】【注意事项】报告体。\n");
         builder.append("- 不要复述本提示词；使用自然中文，不要返回 JSON 或代码块。\n");
-        appendSessionHistorySection(builder, sessionHistory);
+        if (shouldAttachSessionHistory(message, CozeChatPromptMode.REALTIME)) {
+            appendSessionHistorySection(builder, sessionHistory, CozeChatPromptMode.REALTIME);
+        }
         builder.append("\n【当前用户问题】\n").append(message);
         return builder.toString();
     }

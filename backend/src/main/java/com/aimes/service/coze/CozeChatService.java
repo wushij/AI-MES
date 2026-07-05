@@ -46,7 +46,7 @@ public class CozeChatService {
         String sessionId = StringUtils.hasText(request.getSessionId()) ? request.getSessionId() : UUID.randomUUID().toString();
         List<AiChatLog> sessionHistory = loadSessionHistory(user.getId(), sessionId);
         List<ProdWorkOrder> referencedOrders = cozeChatPromptService.resolveReferencedOrdersFromText(request.getMessage());
-        if (referencedOrders.isEmpty()) {
+        if (referencedOrders.isEmpty() && !cozeChatPromptService.isStandaloneKnowledgeQuestion(request.getMessage())) {
             referencedOrders = cozeChatPromptService.resolveReferencedOrdersFromHistory(sessionHistory);
         }
         CozeChatPromptMode promptMode = cozeChatPromptService.resolvePromptMode(request.getMessage(), referencedOrders, sessionHistory);
@@ -56,7 +56,7 @@ public class CozeChatService {
         String mode;
         try {
             if (cozeApiClient.isConfigured()) {
-                reply = invokeLiveChat(user, sessionId, prompt);
+                reply = invokeLiveChat(user, prompt);
                 mode = "live";
             } else {
                 reply = cozeChatPromptService.buildMockReply(request.getMessage(), referencedOrders, user);
@@ -97,7 +97,7 @@ public class CozeChatService {
         String sessionId = StringUtils.hasText(request.getSessionId()) ? request.getSessionId() : UUID.randomUUID().toString();
         List<AiChatLog> sessionHistory = loadSessionHistory(user.getId(), sessionId);
         List<ProdWorkOrder> referencedOrders = cozeChatPromptService.resolveReferencedOrdersFromText(request.getMessage());
-        if (referencedOrders.isEmpty()) {
+        if (referencedOrders.isEmpty() && !cozeChatPromptService.isStandaloneKnowledgeQuestion(request.getMessage())) {
             referencedOrders = cozeChatPromptService.resolveReferencedOrdersFromHistory(sessionHistory);
         }
         CozeChatPromptMode promptMode = cozeChatPromptService.resolvePromptMode(request.getMessage(), referencedOrders, sessionHistory);
@@ -160,7 +160,7 @@ public class CozeChatService {
             StringBuilder replyBuilder) throws IOException, InterruptedException {
         Map<String, Object> payload = cozeApiClient.buildChatPayload(
                 String.valueOf(user.getId()),
-                resolveStreamConversationId(sessionId),
+                null,
                 prompt,
                 true);
 
@@ -287,8 +287,8 @@ public class CozeChatService {
                 .eq(AiChatLog::getSessionId, sessionId));
     }
 
-    private String invokeLiveChat(SysUser user, String sessionId, String prompt) throws IOException, InterruptedException {
-        JsonNode root = cozeApiClient.createChat(String.valueOf(user.getId()), sessionId, prompt);
+    private String invokeLiveChat(SysUser user, String prompt) throws IOException, InterruptedException {
+        JsonNode root = cozeApiClient.createChat(String.valueOf(user.getId()), null, prompt);
         JsonNode data = root.path("data");
         String chatId = data.path("id").asText("");
         String conversationId = data.path("conversation_id").asText("");
@@ -300,13 +300,6 @@ public class CozeChatService {
             throw new IOException("Coze 对话未完成，status=" + status);
         }
         return cozeApiClient.fetchAnswerContent(conversationId, chatId);
-    }
-
-    private String resolveStreamConversationId(String sessionId) {
-        if (StringUtils.hasText(sessionId) && !sessionId.startsWith("sess_")) {
-            return sessionId;
-        }
-        return null;
     }
 
     private List<AiChatLog> loadSessionHistory(Long userId, String sessionId) {
