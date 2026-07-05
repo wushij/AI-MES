@@ -490,6 +490,7 @@ onMounted(() => {
 .auth-form :deep(.el-input__inner) {
   color: #1a1d26;
   font-weight: 500;
+  text-align: left;
 }
 
 .auth-form :deep(.el-input__prefix .el-icon) {

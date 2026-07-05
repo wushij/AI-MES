@@ -90,8 +90,9 @@
       v-model="dialogVisible"
       :title="dialogMode === 'create' ? '新建用户' : '编辑用户'"
       width="560px"
+      class="admin-form-dialog"
     >
-      <el-form ref="formRef" :model="formModel" :rules="rules" label-width="88px">
+      <el-form ref="formRef" :model="formModel" :rules="rules" label-width="96px" class="admin-form-dialog__form">
         <el-form-item label="姓名" prop="name">
           <el-input v-model="formModel.name" />
         </el-form-item>
@@ -122,14 +123,27 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="resetDialogVisible" title="重置密码" width="480px">
+    <el-dialog v-model="resetDialogVisible" title="重置密码" width="480px" class="admin-form-dialog">
       <p class="reset-tip">为用户 <strong>{{ resettingUser?.username }}</strong> 设置新密码</p>
-      <el-form ref="resetFormRef" :model="resetForm" :rules="resetRules" label-width="88px">
+      <el-form ref="resetFormRef" :model="resetForm" :rules="resetRules" label-width="96px" class="admin-form-dialog__form">
         <el-form-item label="新密码" prop="password">
-          <el-input v-model="resetForm.password" type="password" show-password placeholder="请输入新密码" />
+          <el-input
+            v-model="resetForm.password"
+            type="password"
+            show-password
+            placeholder="请输入新密码"
+            autocomplete="new-password"
+          />
         </el-form-item>
         <el-form-item label="确认密码" prop="confirmPassword">
-          <el-input v-model="resetForm.confirmPassword" type="password" show-password placeholder="请再次输入新密码" />
+          <el-input
+            v-model="resetForm.confirmPassword"
+            type="password"
+            show-password
+            placeholder="请再次输入新密码"
+            autocomplete="new-password"
+            @keyup.enter="submitResetPassword"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -145,7 +159,7 @@
 
 <script setup lang="ts">
 
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import type { FormInstance, FormRules } from 'element-plus'
 
@@ -366,6 +380,23 @@ async function submitResetPassword() {
 }
 
 async function toggleStatus(row: UserRow) {
+  if (row.enabled) {
+    try {
+      await ElMessageBox.confirm(
+        `确认禁用用户「${row.username}」？禁用后该账号将无法登录系统。`,
+        '禁用确认',
+        {
+          type: 'warning',
+          confirmButtonText: '确认禁用',
+          cancelButtonText: '取消',
+          distinguishCancelAndClose: true
+        }
+      )
+    } catch {
+      return
+    }
+  }
+
   try {
     await toggleUserStatus(row.id)
     ElMessage.success(`用户已${row.enabled ? '禁用' : '启用'}`)
@@ -604,7 +635,56 @@ function resetFilters() {
 }
 
 :deep(.el-dialog__body) {
-  padding: 24px 0 12px 0 !important;
+  padding: 16px 0 8px !important;
+}
+
+.admin-form-dialog__form :deep(.el-form-item) {
+  margin-bottom: 18px;
+}
+
+.admin-form-dialog__form :deep(.el-form-item__label) {
+  justify-content: flex-end;
+  padding-right: 12px;
+  color: #475569;
+}
+
+.admin-form-dialog__form :deep(.el-input__wrapper) {
+  border-radius: 10px !important;
+  min-height: 40px;
+  padding: 0 12px !important;
+  background: #fff !important;
+  box-shadow: 0 0 0 1px #e2e8f0 inset !important;
+}
+
+.admin-form-dialog__form :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px #cbd5e1 inset !important;
+}
+
+.admin-form-dialog__form :deep(.el-input__wrapper.is-focus) {
+  box-shadow:
+    0 0 0 1px #4f46e5 inset,
+    0 0 0 3px rgba(79, 70, 229, 0.1) !important;
+}
+
+.admin-form-dialog__form :deep(.el-input__inner) {
+  text-align: left;
+}
+
+.admin-form-dialog__form :deep(.el-select__wrapper) {
+  border-radius: 10px !important;
+  min-height: 40px;
+  padding: 0 12px !important;
+  background: #fff !important;
+  box-shadow: 0 0 0 1px #e2e8f0 inset !important;
+}
+
+.admin-form-dialog__form :deep(.el-select .el-select__selection) {
+  justify-content: flex-start;
+}
+
+.admin-form-dialog__form :deep(.el-select .el-select__selected-item),
+.admin-form-dialog__form :deep(.el-select .el-select__placeholder) {
+  text-align: left;
 }
 
 :deep(.el-form-item__label) {
@@ -622,9 +702,14 @@ function resetFilters() {
 }
 
 .reset-tip {
-  margin: 0 0 16px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e8edf3;
   color: #64748b;
   font-size: 14px;
+  line-height: 1.5;
 }
 
 .reset-tip strong {

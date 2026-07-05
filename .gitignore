@@ -74,16 +74,9 @@ dependency-reduced-pom.xml
 *~
 ~$*
 
-# --- 本地知识库与人设（勿提交，各环境自行维护）---
-docs/knowledge-base/
-docs/coze智能体的人设提示词.txt
-docs/排产工作流提示词.txt
-
-# --- 学生个人提交包/佐证/报告（不提交Git） ---
-docs/2024233219336_吴石金_报告.md
-docs/2024233219336_吴石金_报告.docx
-docs/2024233219336_吴石金_佐证*
-docs/2024233219336_吴石金_源码*
+# --- 本地文档与 SQL 迁移（勿提交，各环境自行维护）---
+docs/
+sql/migrations/
 
 # --- 本地报告转换脚本 ---
 scripts/convert_report_to_word.py
