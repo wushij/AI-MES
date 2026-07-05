@@ -141,7 +141,17 @@
           </div>
         </div>
 
+        <el-alert
+          v-if="isOrderDone"
+          type="success"
+          show-icon
+          :closable="false"
+          title="工单已完成，无需更新进度"
+          class="progress-done-alert"
+        />
+
         <el-form
+          v-else
           ref="progressFormRef"
           :model="progressForm"
           :rules="rules"
@@ -285,11 +295,18 @@
       <template #footer>
         <div class="dialog-footer-custom">
           <el-button class="btn-cancel" @click="progressDialogVisible = false">取消</el-button>
-          <el-button type="primary" plain :loading="submitting" class="btn-submit" @click="submitProgress(false)">
+          <el-button
+            v-if="canSaveProgress"
+            type="primary"
+            plain
+            :loading="submitting"
+            class="btn-submit"
+            @click="submitProgress(false)"
+          >
             保存进度
           </el-button>
           <el-button
-            v-if="sortedProcessRecords.length && !isLastProcess"
+            v-if="canAdvanceProcess && !isLastProcess"
             type="primary"
             :loading="submitting"
             class="btn-submit"
@@ -298,7 +315,7 @@
             完成本工序，进入下一道{{ nextProcessName ? `：${nextProcessName}` : '' }}
           </el-button>
           <el-button
-            v-else-if="sortedProcessRecords.length && isLastProcess"
+            v-else-if="canAdvanceProcess && isLastProcess"
             type="success"
             :loading="submitting"
             class="btn-submit"
@@ -479,6 +496,20 @@ const nextProcessName = computed(() => {
 const pendingProcessCount = computed(() =>
   sortedProcessRecords.value.filter((item) => item.status !== 'done').length
 )
+
+const isOrderDone = computed(() => activeTask.value?.status === 'done')
+
+const canSaveProgress = computed(() => {
+  if (isOrderDone.value) return false
+  if (sortedProcessRecords.value.length && pendingProcessCount.value === 0) return false
+  if (isLastProcess.value && pendingProcessCount.value <= 1 && progressForm.progress >= maxProgress.value) return false
+  return true
+})
+
+const canAdvanceProcess = computed(() => {
+  if (isOrderDone.value) return false
+  return sortedProcessRecords.value.length > 0
+})
 
 const needsInspection = computed(() => Number(currentOperation.value?.needCheck) === 1 && inspectionRows.value.length > 0)
 
@@ -846,20 +877,26 @@ async function submitProgress(completeCurrentProcess = false) {
     if (materials && materials.length) {
       const htmlContent = `
         <div style="font-size: 14px; line-height: 1.5; color: #334155;">
-          <p style="margin: 0 0 10px 0; font-weight: 600; color: #1e293b;">本工序开工将领用以下物料：</p>
+          <p style="margin: 0 0 10px 0; font-weight: 600; color: #1e293b; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <svg viewBox="0 0 24 24" fill="none" style="width: 20px; height: 20px; flex-shrink: 0; transform: translateY(1px);">
+              <circle cx="12" cy="12" r="10" fill="#e6a23c"></circle>
+              <line x1="12" y1="8" x2="12" y2="12" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"></line>
+              <line x1="12" y1="16" x2="12" y2="16.01" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"></line>
+            </svg>
+            本工序开工将领用以下物料：
+          </p>
           ${formatMaterialPickHtml(materials, activeOrderQty.value)}
-          <p style="margin: 14px 0 0 0; color: #d97706; font-weight: 600;">确认开工并继续？</p>
         </div>
       `
       try {
         await ElMessageBox.confirm(
           htmlContent,
-          '工序开工领料确认',
+          '领料确认',
           {
-            type: 'warning',
             confirmButtonText: '确认开工并领料',
             cancelButtonText: '取消',
-            dangerouslyUseHTMLString: true
+            dangerouslyUseHTMLString: true,
+            center: true
           }
         )
       } catch {
@@ -874,7 +911,12 @@ async function submitProgress(completeCurrentProcess = false) {
     
     let htmlContent = `
       <div style="font-size: 14px; line-height: 1.5; color: #334155;">
-        <p style="margin: 0; font-weight: 600; color: #1e293b;">
+        <p style="margin: 0 0 10px 0; font-weight: 600; color: #1e293b; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          <svg viewBox="0 0 24 24" fill="none" style="width: 20px; height: 20px; flex-shrink: 0; transform: translateY(1px);">
+            <circle cx="12" cy="12" r="10" fill="#e6a23c"></circle>
+            <line x1="12" y1="8" x2="12" y2="12" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"></line>
+            <line x1="12" y1="16" x2="12" y2="16.01" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"></line>
+          </svg>
           ${isLastProcess.value ? '确认完成最后一道工序并整单完工？' : `确认完成「${progressForm.currentProcess}」并进入下一道「${nextProcessName.value}」？`}
         </p>
     `
@@ -893,10 +935,10 @@ async function submitProgress(completeCurrentProcess = false) {
 
     try {
       await ElMessageBox.confirm(htmlContent, confirmTitle, {
-        type: 'warning',
         confirmButtonText: confirmBtnText,
         cancelButtonText: '取消',
-        dangerouslyUseHTMLString: true
+        dangerouslyUseHTMLString: true,
+        center: true
       })
     } catch {
       return
@@ -974,7 +1016,7 @@ function formatMaterialPickHtml(materials: ProcessOperation['materials'], prodQt
     html += `
           <tr style="border-bottom: 1px solid #f1f5f9;">
             <td style="padding: 8px 10px; color: #1e293b; font-weight: 500;">${name}</td>
-            <td style="padding: 8px 10px; color: #64748b; text-align: right;">${unitQty} ${unit}/件</td>
+            <td style="padding: 8px 10px; color: #64748b; text-align: right;">${unitQty} ${unit}</td>
             <td style="padding: 8px 10px; color: #4f46e5; font-weight: 600; text-align: right;">${total} ${unit}</td>
           </tr>
     `
@@ -983,6 +1025,9 @@ function formatMaterialPickHtml(materials: ProcessOperation['materials'], prodQt
         </tbody>
       </table>
     </div>
+    <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b; line-height: 1.5; text-align: center;">
+      领用总数 = 单件用量 × 本工单生产数量（共 <strong style="color: #475569;">${prodQty}</strong> 件）
+    </p>
   `
   return html
 }
@@ -1026,6 +1071,10 @@ function mapTask(item: Record<string, unknown>, boardStatus: BoardStatus): TaskR
 </script>
 
 <style scoped>
+.progress-done-alert {
+  margin-bottom: 8px;
+}
+
 .view-page {
   display: flex;
   flex-direction: column;
