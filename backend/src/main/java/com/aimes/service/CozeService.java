@@ -1756,7 +1756,26 @@ public class CozeService {
                 "待处理", "未处理", "open", "processing")) {
             return true;
         }
+        if (matchesDeviceRealtimeQuery(text)) {
+            return true;
+        }
         return false;
+    }
+
+    /** 设备台账/状态/故障等查数 —— 走数据库；SOP/流程说明仍走知识库 */
+    private boolean matchesDeviceRealtimeQuery(String text) {
+        if (!text.contains("设备")) {
+            return false;
+        }
+        if (isMaterialModuleKnowledgeQuery(text)) {
+            return false;
+        }
+        if (containsAny(text, "SOP", "手册", "步骤", "流程", "怎么", "如何", "怎样", "怎么办", "应该")) {
+            return false;
+        }
+        return containsAny(text,
+                "多少", "几个", "哪些", "列表", "当前", "现在", "有哪些", "状态",
+                "故障", "停机", "运行", "保养", "点检", "维修", "预警", "异常", "概况");
     }
 
     /** 物料/缺料相关的功能、页面、权限说明 —— 知识库问答，非实时查数 */
@@ -1838,6 +1857,8 @@ public class CozeService {
             }
         }
 
+        appendDeviceRealtimeSection(builder, message);
+
         builder.append("\n【本地实时数据·未处理异常（open/processing，最新20条）】\n");
         if (openExceptions.isEmpty()) {
             builder.append("- 当前无未处理异常\n");
@@ -1906,7 +1927,47 @@ public class CozeService {
                 || text.contains("生产")
                 || text.contains("班")
                 || text.contains("任务")
-                || text.contains("异常");
+                || text.contains("异常")
+                || text.contains("设备");
+    }
+
+    private void appendDeviceRealtimeSection(StringBuilder builder, String message) {
+        if (!StringUtils.hasText(message)) {
+            return;
+        }
+        if (!matchesDeviceRealtimeQuery(message) && !needsOverviewSnapshot(message)) {
+            return;
+        }
+        Map<String, Object> summary = deviceService.summary();
+        builder.append("\n【本地实时数据·设备台账（MySQL 实时统计）】\n");
+        builder.append("- 设备总数=").append(summary.get("totalCount"))
+                .append("，运行中=").append(summary.get("runningCount"))
+                .append("，空闲=").append(summary.get("idleCount"))
+                .append("，故障/维修=").append(summary.get("faultCount"))
+                .append("，保养中=").append(summary.get("maintenanceCount"))
+                .append("，今日报警=").append(summary.get("todayAlertCount"))
+                .append("，保养逾期=").append(summary.get("maintenanceOverdueCount"))
+                .append("，平均利用率=").append(summary.get("avgUtilizationRate")).append("%\n");
+
+        if (!matchesDeviceRealtimeQuery(message == null ? "" : message)) {
+            return;
+        }
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> devices = (List<Map<String, Object>>) summary.get("devices");
+        if (devices == null || devices.isEmpty()) {
+            builder.append("- 当前无设备台账数据\n");
+            return;
+        }
+        builder.append("\n【本地实时数据·设备明细（全部）】\n");
+        for (Map<String, Object> device : devices) {
+            builder.append("- 设备编号=").append(device.get("deviceCode"))
+                    .append(" 名称=").append(device.get("deviceName"))
+                    .append(" 产线=").append(device.get("lineName") == null ? "—" : device.get("lineName"))
+                    .append(" 车间=").append(device.get("workshop") == null ? "—" : device.get("workshop"))
+                    .append(" 状态=").append(device.get("statusLabel"))
+                    .append("\n");
+        }
     }
 
     private boolean needsOverviewSnapshot(String message) {
@@ -1930,6 +1991,12 @@ public class CozeService {
                 .append("，今日新增=").append(stats.get("newExceptionCount")).append("\n");
         builder.append("- 缺料预警=").append(stats.get("materialAlertCount"))
                 .append("，今日新增=").append(stats.get("newMaterialAlertCount")).append("\n");
+        builder.append("- 设备总数=").append(stats.get("deviceTotalCount"))
+                .append("，运行中=").append(stats.get("deviceRunningCount"))
+                .append("，故障/维修=").append(stats.get("deviceFaultCount"))
+                .append("，今日设备报警=").append(stats.get("deviceTodayAlertCount"))
+                .append("，保养逾期=").append(stats.get("deviceMaintenanceOverdueCount"))
+                .append("，平均利用率=").append(stats.get("deviceAvgUtilizationRate")).append("%\n");
 
         List<Map<String, Object>> teamProgress = dashboardService.progress();
         if (!teamProgress.isEmpty()) {
@@ -2132,7 +2199,40 @@ public class CozeService {
             reply.append("。");
             return reply.toString();
         }
-        return "当前为演示模式。我可以帮助你查询工单进度、班组任务、异常处理建议或物料预警信息。";
+        if (matchesDeviceRealtimeQuery(message)) {
+            Map<String, Object> summary = deviceService.summary();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> devices = (List<Map<String, Object>>) summary.get("devices");
+            if (devices == null || devices.isEmpty()) {
+                return "当前系统中暂无设备台账数据。";
+            }
+            StringBuilder reply = new StringBuilder("📊 当前共有 ")
+                    .append(summary.get("totalCount"))
+                    .append(" 台设备（运行中 ")
+                    .append(summary.get("runningCount"))
+                    .append("，故障/维修 ")
+                    .append(summary.get("faultCount"))
+                    .append("）：");
+            int limit = Math.min(devices.size(), 10);
+            for (int i = 0; i < limit; i++) {
+                Map<String, Object> device = devices.get(i);
+                if (i > 0) {
+                    reply.append("；");
+                }
+                reply.append(device.get("deviceCode"))
+                        .append(" ")
+                        .append(device.get("deviceName"))
+                        .append("（")
+                        .append(device.get("statusLabel"))
+                        .append("）");
+            }
+            if (devices.size() > limit) {
+                reply.append("；等共 ").append(devices.size()).append(" 台");
+            }
+            reply.append("。");
+            return reply.toString();
+        }
+        return "当前为演示模式。我可以帮助你查询工单进度、班组任务、异常处理建议、物料预警或设备状态信息。";
     }
 
     private Map<String, Object> buildMockScheduling(

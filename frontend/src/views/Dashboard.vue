@@ -87,11 +87,13 @@
                 </el-button>
               </div>
             </template>
-            <div class="device-kpi-row">
+            <div class="device-kpi-row device-kpi-row--6">
               <div class="device-kpi"><span>总数</span><strong>{{ summary.deviceTotalCount ?? 0 }}</strong></div>
               <div class="device-kpi device-kpi--ok"><span>运行</span><strong>{{ summary.deviceRunningCount ?? 0 }}</strong></div>
               <div class="device-kpi device-kpi--danger"><span>故障</span><strong>{{ summary.deviceFaultCount ?? 0 }}</strong></div>
               <div class="device-kpi device-kpi--warn"><span>今日报警</span><strong>{{ summary.deviceTodayAlertCount ?? 0 }}</strong></div>
+              <div class="device-kpi device-kpi--maint"><span>保养到期</span><strong>{{ summary.deviceMaintenanceOverdueCount ?? 0 }}</strong></div>
+              <div class="device-kpi device-kpi--rate"><span>平均稼动</span><strong>{{ summary.deviceAvgUtilizationRate ?? 0 }}%</strong></div>
             </div>
             <el-table v-if="deviceList.length" :data="deviceList" stripe border size="small" :header-cell-style="tableHeaderStyle" class="panel-table">
               <el-table-column prop="deviceCode" label="编号" min-width="90" align="center" />
@@ -183,6 +185,8 @@ interface DashboardSummary {
   deviceRunningCount?: number
   deviceFaultCount?: number
   deviceTodayAlertCount?: number
+  deviceMaintenanceOverdueCount?: number
+  deviceAvgUtilizationRate?: number
   todayOutput?: number
 }
 interface TeamProgressItem { teamName: string; completedQty: number; totalQty: number; progress: number }
@@ -206,7 +210,7 @@ const exceptionList = ref<ExceptionItem[]>([])
 const deviceList = ref<DeviceBriefItem[]>([])
 const materialAlerts = ref<MaterialAlertItem[]>([])
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600', textAlign: 'center' as const }
-const summary = reactive<DashboardSummary>({ planCount: 0, planTrend: '0%', inProgressCount: 0, inProgressTrend: '0%', openExceptionCount: 0, newExceptionCount: 0, materialAlertCount: 0, newMaterialAlertCount: 0, deviceTotalCount: 0, deviceRunningCount: 0, deviceFaultCount: 0, deviceTodayAlertCount: 0 })
+const summary = reactive<DashboardSummary>({ planCount: 0, planTrend: '0%', inProgressCount: 0, inProgressTrend: '0%', openExceptionCount: 0, newExceptionCount: 0, materialAlertCount: 0, newMaterialAlertCount: 0, deviceTotalCount: 0, deviceRunningCount: 0, deviceFaultCount: 0, deviceTodayAlertCount: 0, deviceMaintenanceOverdueCount: 0, deviceAvgUtilizationRate: 0 })
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 const role = computed(() => userStore.role)
 const isSupervisor = computed(() => userStore.isSupervisor || userStore.isAdmin)
@@ -569,6 +573,9 @@ function pad(value: number) { return String(value).padStart(2, '0') }
 .chart-box { height: 320px; }
 .panel-card :deep(.el-card__body) { min-height: 180px; }
 .device-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.device-kpi-row--6 { grid-template-columns: repeat(6, 1fr); }
+.device-kpi--maint strong { color: #ea580c; }
+.device-kpi--rate strong { color: #4f46e5; }
 .device-kpi { background: #f8fafc; border-radius: 12px; padding: 12px; text-align: center; }
 .device-kpi span { display: block; font-size: 12px; color: #64748b; }
 .device-kpi strong { font-size: 22px; color: #0f172a; }
@@ -582,7 +589,7 @@ function pad(value: number) { return String(value).padStart(2, '0') }
 @media (max-width: 900px) {
   .action-bar { align-items: flex-start; flex-direction: column; }
   .chart-box { height: 280px; }
-  .device-kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .device-kpi-row, .device-kpi-row--6 { grid-template-columns: repeat(2, 1fr); }
   .dashboard-metrics { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 560px) {

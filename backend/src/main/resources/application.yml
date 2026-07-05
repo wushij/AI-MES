@@ -43,6 +43,7 @@ sa-token:
   is-read-cookie: false
   is-read-body: false
   is-log: true
+  is-print: false
 
 knife4j:
   enable: true

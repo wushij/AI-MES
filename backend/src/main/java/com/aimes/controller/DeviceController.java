@@ -85,6 +85,12 @@ public class DeviceController {
         return Result.ok("删除成功", null);
     }
 
+    @GetMapping("/{id}/today-alerts")
+    @SaCheckPermission("设备")
+    public Result<List<Map<String, Object>>> todayAlerts(@PathVariable Long id) {
+        return Result.ok(deviceService.listTodayAlerts(id));
+    }
+
     @GetMapping("/{id}/process-records")
     @SaCheckPermission("设备")
     public Result<List<Map<String, Object>>> processRecords(@PathVariable Long id) {
@@ -128,3 +134,4 @@ public class DeviceController {
         return Result.ok("删除成功", null);
     }
 }
+

@@ -24,6 +24,9 @@ export function deviceActionLabel(actionType?: string) {
     case 'status': return '状态变更'
     case 'exception': return '异常上报'
     case 'handle': return '异常处理'
+    case 'inspection': return '设备点检'
+    case 'maintenance': return '设备保养'
+    case 'repair': return '设备维修'
     default: return actionType ?? '操作'
   }
 }

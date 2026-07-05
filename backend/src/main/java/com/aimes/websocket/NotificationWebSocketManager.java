@@ -34,6 +34,18 @@ public class NotificationWebSocketManager {
   }
 
   public void pushToUser(Long userId, SysNotification notification) {
+    pushJson(userId, Map.of(
+        "type", "notification",
+        "data", notification));
+  }
+
+  public void pushDeviceAlert(Long userId, Map<String, Object> alertPayload) {
+    pushJson(userId, Map.of(
+        "type", "device_alert",
+        "data", alertPayload));
+  }
+
+  private void pushJson(Long userId, Map<String, Object> envelope) {
     Set<WebSocketSession> sessions = userSessions.get(userId);
     if (sessions == null || sessions.isEmpty()) {
       return;
@@ -41,11 +53,9 @@ public class NotificationWebSocketManager {
 
     String payload;
     try {
-      payload = objectMapper.writeValueAsString(Map.of(
-          "type", "notification",
-          "data", notification));
+      payload = objectMapper.writeValueAsString(envelope);
     } catch (JsonProcessingException e) {
-      log.warn("序列化通知消息失败: userId={}", userId, e);
+      log.warn("序列化 WebSocket 消息失败: userId={}", userId, e);
       return;
     }
 
@@ -58,7 +68,7 @@ public class NotificationWebSocketManager {
       try {
         session.sendMessage(message);
       } catch (IOException e) {
-        log.debug("推送通知失败，移除会话: sessionId={}", session.getId(), e);
+        log.debug("推送 WebSocket 消息失败，移除会话: sessionId={}", session.getId(), e);
         unregister(session);
       }
     }

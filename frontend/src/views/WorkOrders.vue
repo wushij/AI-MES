@@ -327,8 +327,14 @@
           </el-form-item>
 
           <el-form-item label="当前工序" prop="currentProcess">
-            <el-select v-model="progressForm.currentProcess" filterable placeholder="选择当前工序" class="custom-input full-width">
+            <el-select v-model="progressForm.currentProcess" filterable placeholder="选择当前工序" class="custom-input full-width" @change="onProcessChange">
               <el-option v-for="name in progressProcessOptions" :key="name" :label="name" :value="name" />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item v-if="allowedDevices.length" label="使用设备">
+            <el-select v-model="progressForm.deviceId" filterable clearable placeholder="选择工序允许的设备" class="custom-input full-width">
+              <el-option v-for="item in allowedDevices" :key="item.id" :label="`${item.deviceName} (${item.deviceCode})`" :value="item.id" />
             </el-select>
           </el-form-item>
 
@@ -387,7 +393,8 @@ import ProductSelect from '@/components/common/ProductSelect.vue'
 
 import ProcessRecordTimeline, { type ProcessRecordItem } from '@/components/workorder/ProcessRecordTimeline.vue'
 
-import { getProcessOperationNames } from '@/api/processRoutes'
+import { getProcessExecutionContext, getProcessOperationNames, type ProcessOperation } from '@/api/processRoutes'
+import { getDeviceOptions } from '@/api/devices'
 
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
@@ -427,6 +434,25 @@ const teamOptions = ref<TeamOption[]>([])
 const processOptions = ref<string[]>(['备料', '装配', '检测', '包装'])
 
 const processRecords = ref<ProcessRecordItem[]>([])
+
+const executionOperations = ref<ProcessOperation[]>([])
+
+const allDeviceOptions = ref<Array<{ id: number | string; deviceName: string; deviceCode: string; categoryId?: number | string }>>([])
+
+const currentOperation = computed(() =>
+  executionOperations.value.find((item) => item.operationName === progressForm.currentProcess)
+)
+
+const allowedDevices = computed(() => {
+  const op = currentOperation.value
+  if (!op?.devices?.length) return []
+  const ids = new Set<number | string>()
+  op.devices.forEach((bind) => {
+    if (bind.bindType === 'device' && bind.deviceId) ids.add(bind.deviceId)
+  })
+  const categoryIds = op.devices.filter((b) => b.bindType === 'category').map((b) => b.categoryId)
+  return allDeviceOptions.value.filter((d) => ids.has(d.id) || (d.categoryId && categoryIds.includes(d.categoryId)))
+})
 
 const progressProcessOptions = computed(() => {
   if (processRecords.value.length) {
@@ -534,7 +560,7 @@ const hasSchedulingInfo = computed(() =>
   })
 )
 
-const progressForm = reactive({ progress: 0, currentProcess: '', remark: '' })
+const progressForm = reactive({ progress: 0, currentProcess: '', remark: '', deviceId: undefined as number | string | undefined })
 
 const assignRules: FormRules = { teamId: [{ required: true, message: '请选择班组', trigger: 'change' }], priority: [{ required: true, message: '请选择优先级', trigger: 'change' }] }
 
@@ -555,8 +581,26 @@ onMounted(() => {
   }
   loadTeamOptions()
   loadProcessOptions()
+  void loadDeviceOptions()
   loadOrders()
 })
+
+async function loadDeviceOptions() {
+  try {
+    allDeviceOptions.value = await getDeviceOptions()
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+function resolveDeviceIdForProcess(processName: string) {
+  const record = processRecords.value.find((item) => item.processName === processName)
+  return record?.deviceId
+}
+
+function onProcessChange() {
+  progressForm.deviceId = resolveDeviceIdForProcess(progressForm.currentProcess)
+}
 
 async function loadProcessOptions() {
   try {
@@ -771,10 +815,12 @@ async function openProgressDrawer(row: WorkOrderRow) {
   currentOrder.value = row
   resetSchedulingInfo()
   processRecords.value = []
+  executionOperations.value = []
   Object.assign(progressForm, {
     progress: row.progress,
     currentProcess: row.currentProcess,
-    remark: row.remark ?? ''
+    remark: row.remark ?? '',
+    deviceId: undefined
   })
   progressDrawerVisible.value = true
   try {
@@ -782,12 +828,44 @@ async function openProgressDrawer(row: WorkOrderRow) {
     const detail = (await api.getWorkOrderDetail(row.id)) as unknown as Record<string, unknown>
     loadSchedulingInfo(detail)
     processRecords.value = (detail.processRecords as ProcessRecordItem[] | undefined) ?? []
+    executionOperations.value = (detail.routingContext as { operations?: ProcessOperation[] } | undefined)?.operations ?? []
+    if (!executionOperations.value.length) {
+      try {
+        const ctx = await getProcessExecutionContext(row.id)
+        executionOperations.value = ctx.operations ?? []
+      } catch (error) {
+        console.error(error)
+      }
+    }
+    onProcessChange()
   } catch (error) {
     console.error(error)
   }
 }
 
-async function submitProgress() { const valid = await progressFormRef.value?.validate().catch(() => false); if (!valid || !currentOrder.value) return; submittingProgress.value = true; try { const api = await import('@/api/workOrders'); await api.updateWorkOrderProgress(currentOrder.value.id, { progress: progressForm.progress, processName: progressForm.currentProcess, remark: progressForm.remark }); ElMessage.success('进度已更新'); progressDrawerVisible.value = false; loadOrders(); if (progressForm.progress >= 100) void appStore.loadWorkshopSummary() } catch (error) { console.error(error); ElMessage.error('更新进度失败') } finally { submittingProgress.value = false } }
+async function submitProgress() {
+  const valid = await progressFormRef.value?.validate().catch(() => false)
+  if (!valid || !currentOrder.value) return
+  submittingProgress.value = true
+  try {
+    const api = await import('@/api/workOrders')
+    await api.updateWorkOrderProgress(currentOrder.value.id, {
+      progress: progressForm.progress,
+      processName: progressForm.currentProcess,
+      deviceId: progressForm.deviceId,
+      remark: progressForm.remark
+    })
+    ElMessage.success('进度已更新')
+    progressDrawerVisible.value = false
+    loadOrders()
+    if (progressForm.progress >= 100) void appStore.loadWorkshopSummary()
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('更新进度失败')
+  } finally {
+    submittingProgress.value = false
+  }
+}
 
 async function completeOrder(row: WorkOrderRow) { await ElMessageBox.confirm(`确认将工单 ${row.code} 标记为完工？`, '确认完工', { type: 'warning' }); actionLoading.value = `complete-${row.id}`; try { const api = await import('@/api/workOrders'); await api.completeWorkOrder(row.id); ElMessage.success('工单已完工'); loadOrders(); void appStore.loadWorkshopSummary() } catch (error) { console.error(error); ElMessage.error('完工操作失败') } finally { actionLoading.value = '' } }
 

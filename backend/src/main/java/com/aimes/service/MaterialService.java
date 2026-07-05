@@ -186,6 +186,13 @@ public class MaterialService {
         if (workOrderId == null || demandItems == null || demandItems.isEmpty()) {
             return;
         }
+        long existingPickCount = invTransactionMapper.selectCount(new LambdaQueryWrapper<InvTransaction>()
+                .eq(InvTransaction::getRefType, "work_order")
+                .eq(InvTransaction::getRefId, workOrderId)
+                .eq(InvTransaction::getTxnType, "pick"));
+        if (existingPickCount > 0) {
+            return;
+        }
         for (Map<String, Object> item : demandItems) {
             Long materialId = ((Number) item.get("materialId")).longValue();
             BigDecimal requiredQty = new BigDecimal(item.get("requiredQty").toString());

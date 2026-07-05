@@ -25,6 +25,12 @@ export interface DeviceItem {
   teamName?: string
   remark?: string
   todayAlertCount?: number
+  maintenanceOverdueCount?: number
+  todayRunMinutes?: number
+  todayRunLabel?: string
+  todayStopMinutes?: number
+  todayStopLabel?: string
+  utilizationRate?: number
   createdTime?: string
   updatedTime?: string
 }
@@ -50,12 +56,39 @@ export interface DeviceHistoryItem {
   createTime?: string
 }
 
+export interface DeviceTodayAlert {
+  id: number | string
+  alertType: string
+  alertTypeLabel?: string
+  refNo?: string
+  title?: string
+  status?: string
+  statusLabel?: string
+  occurTime?: string
+  source?: string
+  sourceId?: number | string
+  targetUrl?: string
+}
+
+export interface DeviceRuntimeStats {
+  todayRunMinutes?: number
+  todayRunLabel?: string
+  todayStopMinutes?: number
+  todayStopLabel?: string
+  todayPauseMinutes?: number
+  todayRepairStopMinutes?: number
+  todayStatusStopMinutes?: number
+  utilizationRate?: number
+  todayAlertCount?: number
+  todayAlerts?: DeviceTodayAlert[]
+  openExceptionCount?: number
+  maintenanceOverdueCount?: number
+  statusLabel?: string
+  dataSource?: string
+}
+
 export interface DeviceFullDetail extends DeviceItem {
-  runtime?: {
-    todayAlertCount?: number
-    openExceptionCount?: number
-    statusLabel?: string
-  }
+  runtime?: DeviceRuntimeStats
   exceptions?: Array<{
     id: number | string
     eventNo: string
@@ -103,6 +136,10 @@ export function getDeviceOptions() {
 
 export function getDeviceProcessRecords(id: number | string) {
   return request.get<DeviceProcessRecordItem[]>(`/devices/${id}/process-records`).then((res) => res.data)
+}
+
+export function getDeviceTodayAlerts(id: number | string) {
+  return request.get<DeviceTodayAlert[]>(`/devices/${id}/today-alerts`).then((res) => res.data)
 }
 
 export function getDeviceDetail(id: number | string) {

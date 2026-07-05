@@ -54,6 +54,11 @@ DROP TABLE IF EXISTS mdm_operation_param;
 DROP TABLE IF EXISTS mdm_routing_history;
 DROP TABLE IF EXISTS mdm_operation;
 DROP TABLE IF EXISTS mdm_routing;
+DROP TABLE IF EXISTS dev_repair_order;
+DROP TABLE IF EXISTS dev_maintenance_record;
+DROP TABLE IF EXISTS dev_maintenance_plan;
+DROP TABLE IF EXISTS dev_inspection_record;
+DROP TABLE IF EXISTS dev_inspection_plan;
 DROP TABLE IF EXISTS dev_device_history;
 DROP TABLE IF EXISTS dev_device;
 DROP TABLE IF EXISTS dev_device_category;
@@ -359,6 +364,120 @@ CREATE TABLE dev_device_history (
     CONSTRAINT fk_history_device FOREIGN KEY (device_id) REFERENCES dev_device(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备履历';
 
+-- 设备点检计划
+CREATE TABLE dev_inspection_plan (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    plan_code VARCHAR(32) NOT NULL COMMENT '计划编号',
+    plan_name VARCHAR(64) NOT NULL COMMENT '计划名称',
+    device_id BIGINT NULL COMMENT '绑定设备，NULL 表示非设备专属',
+    category_id BIGINT NULL COMMENT '绑定分类',
+    cycle_type VARCHAR(16) NOT NULL DEFAULT 'daily' COMMENT '周期：daily/weekly/monthly',
+    check_items TEXT NOT NULL COMMENT '点检项目 JSON 数组',
+    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_inspection_plan_code (plan_code),
+    KEY idx_inspection_plan_device (device_id),
+    KEY idx_inspection_plan_category (category_id),
+    CONSTRAINT fk_inspection_plan_device FOREIGN KEY (device_id) REFERENCES dev_device(id) ON DELETE CASCADE,
+    CONSTRAINT fk_inspection_plan_category FOREIGN KEY (category_id) REFERENCES dev_device_category(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备点检计划';
+
+-- 设备点检记录
+CREATE TABLE dev_inspection_record (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    record_no VARCHAR(32) NOT NULL COMMENT '点检单号',
+    device_id BIGINT NOT NULL COMMENT '设备ID',
+    plan_id BIGINT NULL COMMENT '关联计划ID',
+    plan_name VARCHAR(64) NULL COMMENT '计划名称快照',
+    inspector_id BIGINT NULL COMMENT '点检人ID',
+    inspector_name VARCHAR(50) NULL COMMENT '点检人姓名',
+    inspect_time DATETIME NOT NULL COMMENT '点检时间',
+    check_items TEXT NOT NULL COMMENT '点检项及结果 JSON',
+    is_normal TINYINT NOT NULL DEFAULT 1 COMMENT '1正常 0异常',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    UNIQUE KEY uk_inspection_record_no (record_no),
+    KEY idx_inspection_record_device (device_id),
+    KEY idx_inspection_record_time (inspect_time),
+    CONSTRAINT fk_inspection_record_device FOREIGN KEY (device_id) REFERENCES dev_device(id) ON DELETE CASCADE,
+    CONSTRAINT fk_inspection_record_plan FOREIGN KEY (plan_id) REFERENCES dev_inspection_plan(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备点检记录';
+
+-- 设备保养计划
+CREATE TABLE dev_maintenance_plan (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    plan_code VARCHAR(32) NOT NULL COMMENT '计划编号',
+    plan_name VARCHAR(64) NOT NULL COMMENT '计划名称',
+    device_id BIGINT NULL COMMENT '绑定设备',
+    category_id BIGINT NULL COMMENT '绑定分类',
+    cycle_type VARCHAR(16) NOT NULL DEFAULT 'monthly' COMMENT '周期：daily/weekly/monthly',
+    maintenance_items TEXT NOT NULL COMMENT '保养项目 JSON 数组',
+    next_due_date DATE NULL COMMENT '下次保养到期日',
+    last_maintenance_date DATE NULL COMMENT '上次保养日期',
+    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_maintenance_plan_code (plan_code),
+    KEY idx_maintenance_plan_device (device_id),
+    KEY idx_maintenance_plan_due (next_due_date),
+    CONSTRAINT fk_maintenance_plan_device FOREIGN KEY (device_id) REFERENCES dev_device(id) ON DELETE CASCADE,
+    CONSTRAINT fk_maintenance_plan_category FOREIGN KEY (category_id) REFERENCES dev_device_category(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备保养计划';
+
+-- 设备保养记录
+CREATE TABLE dev_maintenance_record (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    record_no VARCHAR(32) NOT NULL COMMENT '保养单号',
+    device_id BIGINT NOT NULL COMMENT '设备ID',
+    plan_id BIGINT NULL COMMENT '关联计划ID',
+    plan_name VARCHAR(64) NULL COMMENT '计划名称快照',
+    maintainer_id BIGINT NULL COMMENT '保养人ID',
+    maintainer_name VARCHAR(50) NULL COMMENT '保养人姓名',
+    maintenance_time DATETIME NOT NULL COMMENT '保养时间',
+    maintenance_items TEXT NOT NULL COMMENT '保养项及结果 JSON',
+    is_completed TINYINT NOT NULL DEFAULT 1 COMMENT '1完成 0未完成',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    UNIQUE KEY uk_maintenance_record_no (record_no),
+    KEY idx_maintenance_record_device (device_id),
+    KEY idx_maintenance_record_time (maintenance_time),
+    CONSTRAINT fk_maintenance_record_device FOREIGN KEY (device_id) REFERENCES dev_device(id) ON DELETE CASCADE,
+    CONSTRAINT fk_maintenance_record_plan FOREIGN KEY (plan_id) REFERENCES dev_maintenance_plan(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备保养记录';
+
+-- 设备维修单
+CREATE TABLE dev_repair_order (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+    repair_no VARCHAR(32) NOT NULL COMMENT '维修单号',
+    device_id BIGINT NOT NULL COMMENT '设备ID',
+    event_id BIGINT NULL COMMENT '关联异常ID',
+    fault_reason VARCHAR(255) NOT NULL COMMENT '故障原因',
+    fault_code VARCHAR(32) NULL COMMENT '故障代码',
+    description TEXT NULL COMMENT '故障描述',
+    status VARCHAR(16) NOT NULL DEFAULT 'open' COMMENT '状态：open/processing/completed/cancelled',
+    reporter_id BIGINT NULL COMMENT '报修人ID',
+    reporter_name VARCHAR(50) NULL COMMENT '报修人姓名',
+    repairer_id BIGINT NULL COMMENT '维修人ID',
+    repairer_name VARCHAR(50) NULL COMMENT '维修人姓名',
+    report_time DATETIME NOT NULL COMMENT '报修时间',
+    start_time DATETIME NULL COMMENT '开始维修时间',
+    end_time DATETIME NULL COMMENT '完成时间',
+    repair_minutes INT NULL COMMENT '维修耗时（分钟）',
+    repair_action TEXT NULL COMMENT '维修措施',
+    repair_result VARCHAR(64) NULL COMMENT '维修结果',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_repair_no (repair_no),
+    KEY idx_repair_device (device_id),
+    KEY idx_repair_status (status),
+    KEY idx_repair_report_time (report_time),
+    CONSTRAINT fk_repair_device FOREIGN KEY (device_id) REFERENCES dev_device(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备维修单';
+
 -- 工艺路线
 CREATE TABLE mdm_routing (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
@@ -643,7 +762,8 @@ INSERT INTO prod_work_order (id, order_no, plan_id, product_id, product_name, or
 -- 工序进度（含 operation_id / device_id 以贯通质量与设备）
 INSERT INTO prod_process_record (work_order_id, operation_id, device_id, process_name, seq_no, status, start_time, end_time, remark, created_time, updated_time) VALUES
 (1, 5, NULL, '备料', 1, 'done',    '2026-06-30 08:00:00', '2026-06-30 09:00:00', '物料齐套',     NOW(), NOW()),
-(1, 6, 1,    '装配', 2, 'running', '2026-06-30 09:30:00', NULL,                  '当前进行中',   NOW(), NOW()),
+(1, 6, 1,    '装配', 2, 'running', '2026-07-05 08:00:00', NULL,                  '今日报工运行', NOW(), NOW()),
+(2, 7, 2,    '检测', 3, 'done',    '2026-07-05 09:00:00', '2026-07-05 10:30:00', '今日检测完成', NOW(), NOW()),
 (1, 7, NULL, '检测', 3, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
 (1, 8, NULL, '包装', 4, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
 (2, 5, NULL, '备料', 1, 'waiting', NULL,                  NULL,                  NULL,           NOW(), NOW()),
@@ -665,7 +785,42 @@ INSERT INTO exc_event (id, event_no, event_type, work_order_id, device_id, descr
 INSERT INTO dev_device_history (device_id, action_type, action_desc, operator_id, operator_name, related_event_id, before_value, after_value, create_time) VALUES
 (1, 'create', '新建设备台账', 2, '张主管', NULL, NULL, 'idle', '2025-01-10 08:00:00'),
 (1, 'status', '设备投入运行', 2, '张主管', NULL, 'idle', 'running', '2025-01-10 09:00:00'),
-(1, 'exception', '设备异常上报：伺服电机异响', 3, '李员工', 3, 'running', 'fault', '2026-07-04 09:20:00');
+(1, 'exception', '设备异常上报：伺服电机异响', 3, '李员工', 3, 'running', 'fault', '2026-07-04 09:20:00'),
+(1, 'inspection', '设备点检：发现异常（伺服电机异响）', 2, '张主管', NULL, NULL, 'abnormal', '2026-07-04 08:30:00'),
+(2, 'inspection', '设备点检：全部正常', 2, '张主管', NULL, NULL, 'normal', '2026-07-05 08:00:00'),
+(1, 'maintenance', '设备保养：A1工位专项保养', 2, '张主管', NULL, NULL, 'completed', '2026-06-29 16:00:00'),
+(1, 'repair', '设备报修：伺服电机异响', 3, '李员工', NULL, 'fault', 'open', '2026-07-04 09:25:00');
+
+-- 设备点检计划
+INSERT INTO dev_inspection_plan (id, plan_code, plan_name, device_id, category_id, cycle_type, check_items, enabled, remark, created_time, updated_time) VALUES
+(1, 'INSP-P-001', '装配设备日点检', NULL, 2, 'daily', '["设备外观与清洁","润滑油位","紧固件检查","安全装置有效性","运行异响检查"]', 1, '装配类设备通用日点检', NOW(), NOW()),
+(2, 'INSP-P-002', '检测设备日点检', NULL, 3, 'daily', '["外观与清洁","校准状态","测量精度抽检","数据线/接口","安全标识"]', 1, '检测类设备通用日点检', NOW(), NOW()),
+(3, 'INSP-P-003', 'A1工位专项点检', 1, NULL, 'daily', '["伺服电机异响","导轨润滑","气压表读数","急停按钮","工装夹具"]', 1, 'DEV-001 专项点检', NOW(), NOW());
+
+-- 设备点检记录
+INSERT INTO dev_inspection_record (id, record_no, device_id, plan_id, plan_name, inspector_id, inspector_name, inspect_time, check_items, is_normal, remark, created_time) VALUES
+(1, 'INSP-20260704-001', 1, 3, 'A1工位专项点检', 2, '张主管', '2026-07-04 08:30:00',
+ '[{"itemName":"伺服电机异响","isNormal":false,"remark":"轻微异响"},{"itemName":"导轨润滑","isNormal":true,"remark":""},{"itemName":"气压表读数","isNormal":true,"remark":""},{"itemName":"急停按钮","isNormal":true,"remark":""},{"itemName":"工装夹具","isNormal":true,"remark":""}]',
+ 0, '发现伺服电机异响，已报修', '2026-07-04 08:30:00'),
+(2, 'INSP-20260705-001', 2, 2, '检测设备日点检', 2, '张主管', '2026-07-05 08:00:00',
+ '[{"itemName":"外观与清洁","isNormal":true,"remark":""},{"itemName":"校准状态","isNormal":true,"remark":""},{"itemName":"测量精度抽检","isNormal":true,"remark":""},{"itemName":"数据线/接口","isNormal":true,"remark":""},{"itemName":"安全标识","isNormal":true,"remark":""}]',
+ 1, NULL, '2026-07-05 08:00:00');
+
+-- 设备保养计划
+INSERT INTO dev_maintenance_plan (id, plan_code, plan_name, device_id, category_id, cycle_type, maintenance_items, next_due_date, last_maintenance_date, enabled, remark, created_time, updated_time) VALUES
+(1, 'MAINT-P-001', '装配设备月度保养', NULL, 2, 'monthly', '["导轨润滑","传动皮带检查","电气接线紧固","过滤器清洁","安全回路测试"]', '2026-07-01', '2026-06-01', 1, '装配类设备月度保养', NOW(), NOW()),
+(2, 'MAINT-P-002', '检测设备季度保养', NULL, 3, 'monthly', '["校准证书核查","传感器清洁","基准块校验","软件版本确认","接地电阻测试"]', '2026-08-01', '2026-07-01', 1, '检测类设备保养', NOW(), NOW()),
+(3, 'MAINT-P-003', 'A1工位专项保养', 1, NULL, 'weekly', '["伺服驱动器散热","丝杠润滑","气管接头","急停回路","工装磨损检查"]', '2026-07-06', '2026-06-29', 1, 'DEV-001 周保养', NOW(), NOW());
+
+-- 设备保养记录
+INSERT INTO dev_maintenance_record (id, record_no, device_id, plan_id, plan_name, maintainer_id, maintainer_name, maintenance_time, maintenance_items, is_completed, remark, created_time) VALUES
+(1, 'MAINT-20260629-001', 1, 3, 'A1工位专项保养', 2, '张主管', '2026-06-29 16:00:00',
+ '[{"itemName":"伺服驱动器散热","done":true,"remark":""},{"itemName":"丝杠润滑","done":true,"remark":""},{"itemName":"气管接头","done":true,"remark":""},{"itemName":"急停回路","done":true,"remark":""},{"itemName":"工装磨损检查","done":true,"remark":"轻微磨损"}]',
+ 1, '周保养完成', '2026-06-29 16:00:00');
+
+-- 设备维修单
+INSERT INTO dev_repair_order (id, repair_no, device_id, event_id, fault_reason, fault_code, description, status, reporter_id, reporter_name, repairer_id, repairer_name, report_time, start_time, end_time, repair_minutes, repair_action, repair_result, remark, created_time, updated_time) VALUES
+(1, 'REP-20260704-001', 1, 3, '伺服电机异响', 'E-SERVO-01', '装配工位 A1 伺服电机运行时有轻微异响，影响加工精度。', 'open', 3, '李员工', NULL, NULL, '2026-07-04 09:25:00', NULL, NULL, NULL, NULL, NULL, '待安排维修', NOW(), NOW());
 
 -- 物料库存
 INSERT INTO mat_material (id, material_code, material_name, stock_qty, safety_stock, unit, alert_status, remark, created_time, updated_time) VALUES

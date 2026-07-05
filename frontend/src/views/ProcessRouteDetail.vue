@@ -56,11 +56,14 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="绑定" width="210" align="center" header-align="center">
+            <el-table-column label="绑定" width="260" align="center" header-align="center">
               <template #default="{ row }">
                 <div class="bind-badges">
-                  <span class="bind-badge device" :class="{ active: getBindCount(row, 'device') > 0 }">
-                    设备 {{ getBindCount(row, 'device') }}
+                  <span class="bind-badge category" :class="{ active: getCategoryBindCount(row) > 0 }">
+                    分类 {{ getCategoryBindCount(row) }}
+                  </span>
+                  <span class="bind-badge device" :class="{ active: getDeviceBindCount(row) > 0 }">
+                    设备 {{ getDeviceBindCount(row) }}
                   </span>
                   <span class="bind-badge material" :class="{ active: getBindCount(row, 'material') > 0 }">
                     物料 {{ getBindCount(row, 'material') }}
@@ -86,14 +89,42 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane v-if="!isNew" label="版本记录" name="history">
-          <div class="tab-content-box">
-            <el-timeline v-if="history.length">
-              <el-timeline-item v-for="item in history" :key="item.id" :timestamp="formatTime(item.createTime)" placement="top">
-                <strong>{{ item.version }}</strong> · {{ item.actionDesc }}
-                <span v-if="item.operatorName" class="history-operator">（{{ item.operatorName }}）</span>
-              </el-timeline-item>
-            </el-timeline>
+        <el-tab-pane v-if="!isNew" :label="`版本记录 (${history.length})`" name="history">
+          <div class="tab-content-box history-panel">
+            <div v-if="history.length" class="history-list">
+              <div
+                v-for="(item, index) in history"
+                :key="item.id"
+                class="history-card"
+                :class="{ 'is-last': index === history.length - 1 }"
+              >
+                <div class="history-card__rail">
+                  <div class="history-card__dot" :class="routingActionClass(item.actionType)" />
+                  <div v-if="index < history.length - 1" class="history-card__line" />
+                </div>
+                <div class="history-card__content">
+                  <div class="history-card__row">
+                    <span class="history-badge" :class="routingActionClass(item.actionType)">
+                      {{ routingActionLabel(item.actionType) }}
+                    </span>
+                    <el-tag v-if="item.version" size="small" effect="plain" round class="history-version-tag">
+                      {{ item.version }}
+                    </el-tag>
+                    <el-tooltip
+                      v-if="item.actionDesc"
+                      :content="item.actionDesc"
+                      placement="top"
+                      :show-after="200"
+                      :disabled="item.actionDesc.length < 48"
+                    >
+                      <span class="history-card__desc">{{ item.actionDesc }}</span>
+                    </el-tooltip>
+                    <span v-if="item.operatorName" class="history-card__operator">{{ item.operatorName }}</span>
+                    <span class="history-card__time">{{ formatTime(item.createTime) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
             <el-empty v-else description="暂无版本记录" />
           </div>
         </el-tab-pane>
@@ -411,20 +442,54 @@ function formatTime(value?: string) {
   return value.replace('T', ' ').slice(0, 19)
 }
 
-function bindSummary(row: ProcessOperation) {
-  const dev = row.deviceIds?.length ?? row.devices?.filter((d) => d.bindType === 'device').length ?? 0
-  const cat = row.categoryIds?.length ?? row.devices?.filter((d) => d.bindType === 'category').length ?? 0
-  const mat = row.materials?.length ?? 0
-  const sop = row.sops?.length ?? 0
-  return `设备${dev + cat} · 物料${mat} · SOP${sop}`
+function routingActionLabel(actionType?: string) {
+  switch (actionType) {
+    case 'create': return '新建'
+    case 'publish': return '发布'
+    case 'submit': return '提交审批'
+    case 'approve': return '审批通过'
+    case 'reject': return '审批驳回'
+    case 'update': return '更新'
+    case 'status': return '状态变更'
+    case 'sop': return 'SOP'
+    case 'default': return '设默认'
+    default: return actionType ?? '操作'
+  }
 }
 
-function getBindCount(row: ProcessOperation, type: 'device' | 'material' | 'sop') {
-  if (type === 'device') {
-    const dev = row.deviceIds?.length ?? row.devices?.filter((d) => d.bindType === 'device').length ?? 0
-    const cat = row.categoryIds?.length ?? row.devices?.filter((d) => d.bindType === 'category').length ?? 0
-    return dev + cat
+function routingActionClass(actionType?: string) {
+  switch (actionType) {
+    case 'create': return 'action-create'
+    case 'publish':
+    case 'approve': return 'action-handle'
+    case 'submit': return 'action-status'
+    case 'reject': return 'action-exception'
+    case 'update': return 'action-update'
+    case 'status': return 'action-status'
+    case 'sop': return 'action-inspection'
+    case 'default': return 'action-maintenance'
+    default: return 'action-default'
   }
+}
+
+function bindSummary(row: ProcessOperation) {
+  const cat = getCategoryBindCount(row)
+  const dev = getDeviceBindCount(row)
+  const mat = row.materials?.length ?? 0
+  const sop = row.sops?.length ?? 0
+  const devicePart = cat && dev ? `分类${cat}+设备${dev}` : cat ? `分类${cat}` : dev ? `设备${dev}` : '设备0'
+  return `${devicePart} · 物料${mat} · SOP${sop}`
+}
+
+function getCategoryBindCount(row: ProcessOperation) {
+  return row.categoryIds?.length ?? row.devices?.filter((d) => d.bindType === 'category').length ?? 0
+}
+
+function getDeviceBindCount(row: ProcessOperation) {
+  return row.deviceIds?.length ?? row.devices?.filter((d) => d.bindType === 'device').length ?? 0
+}
+
+function getBindCount(row: ProcessOperation, type: 'material' | 'sop') {
   if (type === 'material') {
     return row.materials?.length ?? 0
   }
@@ -438,10 +503,12 @@ async function removeOperation(row: ProcessOperation, index: number) {
   const label = [row.operationCode, row.operationName].filter(Boolean).join(' · ') || `第 ${index + 1} 道工序`
   const bindParts: string[] = []
   if (row.parameters?.length) bindParts.push(`${row.parameters.length} 个参数`)
-  const deviceCount = getBindCount(row, 'device')
+  const categoryCount = getCategoryBindCount(row)
+  const deviceCount = getDeviceBindCount(row)
   const materialCount = getBindCount(row, 'material')
   const sopCount = getBindCount(row, 'sop')
-  if (deviceCount) bindParts.push(`${deviceCount} 项设备绑定`)
+  if (categoryCount) bindParts.push(`${categoryCount} 个设备分类`)
+  if (deviceCount) bindParts.push(`${deviceCount} 台具体设备`)
   if (materialCount) bindParts.push(`${materialCount} 项物料`)
   if (sopCount) bindParts.push(`${sopCount} 个 SOP`)
   const bindHint = bindParts.length ? `关联的 ${bindParts.join('、')} 将一并移除。` : ''
@@ -791,7 +858,116 @@ onMounted(async () => {
 .ops-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; color: #64748b; font-size: 13px; }
 .footer-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .param-table { margin-top: 12px; }
-.history-operator { color: #94a3b8; font-size: 13px; }
+.history-panel {
+  padding: 16px 20px;
+}
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.history-card {
+  display: flex;
+  gap: 16px;
+  min-height: auto;
+  align-items: flex-start;
+}
+.history-card__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+.history-card__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px currentColor;
+  flex-shrink: 0;
+  z-index: 1;
+}
+.history-card__dot.action-create { color: #16a34a; background: #dcfce7; }
+.history-card__dot.action-update { color: #4f46e5; background: #e0e7ff; }
+.history-card__dot.action-status { color: #2563eb; background: #dbeafe; }
+.history-card__dot.action-exception { color: #dc2626; background: #fee2e2; }
+.history-card__dot.action-handle { color: #0d9488; background: #ccfbf1; }
+.history-card__dot.action-inspection { color: #7c3aed; background: #ede9fe; }
+.history-card__dot.action-maintenance { color: #d97706; background: #fef3c7; }
+.history-card__dot.action-default { color: #64748b; background: #f1f5f9; }
+.history-card__line {
+  flex: 1;
+  width: 2px;
+  margin: 6px 0;
+  background: linear-gradient(180deg, #e2e8f0 0%, #f1f5f9 100%);
+  border-radius: 1px;
+}
+.history-card__content {
+  flex: 1;
+  padding: 0 0 14px;
+  min-width: 0;
+}
+.history-card.is-last .history-card__content {
+  padding-bottom: 2px;
+}
+.history-card__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  line-height: 1.5;
+}
+.history-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+.history-badge.action-create { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+.history-badge.action-update { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
+.history-badge.action-status { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.history-badge.action-exception { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.history-badge.action-handle { background: #f0fdfa; color: #0f766e; border: 1px solid #99f6e4; }
+.history-badge.action-inspection { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
+.history-badge.action-maintenance { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+.history-badge.action-default { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
+.history-version-tag {
+  flex-shrink: 0;
+  font-weight: 600 !important;
+  color: #475569 !important;
+  border-color: #e2e8f0 !important;
+  background: #f8fafc !important;
+}
+.history-card__desc {
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  flex: 1 1 240px;
+  min-width: 0;
+  line-height: 1.5;
+}
+.history-card__operator {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.history-card__operator::before {
+  content: '·';
+  margin-right: 4px;
+  color: #cbd5e1;
+}
+.history-card__time {
+  font-size: 12px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: auto;
+}
 .bind-summary { font-size: 12px; color: #64748b; }
 .full-width { width: 100%; }
 .sop-hint { color: #94a3b8; padding: 12px 0; }
@@ -845,6 +1021,11 @@ onMounted(async () => {
   background: #eff6ff;
   color: #1d4ed8;
   border-color: #bfdbfe;
+}
+.bind-badge.category.active {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: #ddd6fe;
 }
 .bind-badge.material.active {
   background: #f0fdf4;

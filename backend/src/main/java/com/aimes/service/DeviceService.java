@@ -51,6 +51,8 @@ public class DeviceService {
     private final ProdProcessRecordMapper prodProcessRecordMapper;
     private final ProdWorkOrderMapper prodWorkOrderMapper;
     private final DeviceCategoryService deviceCategoryService;
+    private final DeviceMaintenanceService deviceMaintenanceService;
+    private final DeviceRuntimeService deviceRuntimeService;
     private final AuthService authService;
     private final OperationLogRunner operationLogRunner;
 
@@ -68,9 +70,18 @@ public class DeviceService {
                 .orderByAsc(DevDevice::getDeviceCode);
         List<DevDevice> devices = devDeviceMapper.selectList(wrapper);
         Map<Long, Long> alertCounts = countTodayAlertsByDevice();
+        Map<Long, Long> maintenanceOverdueCounts = deviceMaintenanceService.countOverdueByDevice();
+        Map<Long, Map<String, Object>> runtimeStatsMap = deviceRuntimeService.calcTodayStatsBatch(devices);
         return devices.stream().map(device -> {
             Map<String, Object> view = toView(device);
-            view.put("todayAlertCount", alertCounts.getOrDefault(device.getId(), 0L));
+            Map<String, Object> runtimeStats = runtimeStatsMap.getOrDefault(device.getId(), Map.of());
+            view.put("todayAlertCount", runtimeStats.getOrDefault("todayAlertCount", alertCounts.getOrDefault(device.getId(), 0L)));
+            view.put("maintenanceOverdueCount", maintenanceOverdueCounts.getOrDefault(device.getId(), 0L));
+            view.put("todayRunMinutes", runtimeStats.get("todayRunMinutes"));
+            view.put("todayRunLabel", runtimeStats.get("todayRunLabel"));
+            view.put("todayStopMinutes", runtimeStats.get("todayStopMinutes"));
+            view.put("todayStopLabel", runtimeStats.get("todayStopLabel"));
+            view.put("utilizationRate", runtimeStats.get("utilizationRate"));
             return view;
         }).toList();
     }
@@ -153,6 +164,11 @@ public class DeviceService {
         return result;
     }
 
+    public List<Map<String, Object>> listTodayAlerts(Long id) {
+        getDevice(id);
+        return deviceRuntimeService.listTodayAlerts(id);
+    }
+
     public Map<String, Object> detail(Long id) {
         return toView(getDevice(id));
     }
@@ -161,22 +177,15 @@ public class DeviceService {
         DevDevice device = getDevice(id);
         Map<String, Object> view = toView(device);
 
-        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
-        LocalDateTime tomorrowStart = todayStart.plusDays(1);
-
-        long todayAlerts = excEventMapper.selectCount(new LambdaQueryWrapper<ExcEvent>()
-                .eq(ExcEvent::getDeviceId, id)
-                .eq(ExcEvent::getEventType, "device")
-                .ge(ExcEvent::getOccurTime, todayStart)
-                .lt(ExcEvent::getOccurTime, tomorrowStart));
         long openExceptions = excEventMapper.selectCount(new LambdaQueryWrapper<ExcEvent>()
                 .eq(ExcEvent::getDeviceId, id)
                 .in(ExcEvent::getStatus, List.of("open", "processing")));
 
-        Map<String, Object> runtime = new LinkedHashMap<>();
-        runtime.put("todayAlertCount", todayAlerts);
+        Map<String, Object> runtimeStats = deviceRuntimeService.calcTodayStats(device);
+        Map<String, Object> runtime = new LinkedHashMap<>(runtimeStats);
         runtime.put("openExceptionCount", openExceptions);
         runtime.put("statusLabel", statusLabel(device.getStatus()));
+        runtime.put("maintenanceOverdueCount", deviceMaintenanceService.countOverdueByDevice().getOrDefault(id, 0L));
         view.put("runtime", runtime);
 
         List<Map<String, Object>> exceptions = excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
@@ -208,10 +217,24 @@ public class DeviceService {
         long maintenance = devices.stream().filter(d -> "maintenance".equals(d.getStatus())).count();
         long scrapped = devices.stream().filter(d -> "scrapped".equals(d.getStatus())).count();
 
-        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
-        long todayDeviceAlerts = excEventMapper.selectCount(new LambdaQueryWrapper<ExcEvent>()
-                .eq(ExcEvent::getEventType, "device")
-                .ge(ExcEvent::getOccurTime, todayStart));
+        Map<Long, Long> maintenanceOverdueCounts = deviceMaintenanceService.countOverdueByDevice();
+        long maintenanceOverdueTotal = maintenanceOverdueCounts.values().stream().mapToLong(Long::longValue).sum();
+        Map<Long, Map<String, Object>> runtimeStatsMap = deviceRuntimeService.calcTodayStatsBatch(devices);
+        int utilizationSum = 0;
+        int utilizationCount = 0;
+        long todayAlertTotal = 0;
+        for (DevDevice device : devices) {
+            Map<String, Object> stats = runtimeStatsMap.getOrDefault(device.getId(), Map.of());
+            Object rate = stats.get("utilizationRate");
+            if (rate instanceof Number number) {
+                utilizationSum += number.intValue();
+                utilizationCount++;
+            }
+            Object alertCount = stats.get("todayAlertCount");
+            if (alertCount instanceof Number number) {
+                todayAlertTotal += number.longValue();
+            }
+        }
 
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("totalCount", total);
@@ -220,7 +243,9 @@ public class DeviceService {
         summary.put("faultCount", fault);
         summary.put("maintenanceCount", maintenance);
         summary.put("scrappedCount", scrapped);
-        summary.put("todayAlertCount", todayDeviceAlerts);
+        summary.put("todayAlertCount", todayAlertTotal);
+        summary.put("maintenanceOverdueCount", maintenanceOverdueTotal);
+        summary.put("avgUtilizationRate", utilizationCount > 0 ? Math.round(utilizationSum * 1.0 / utilizationCount) : 0);
         summary.put("devices", devices.stream().map(this::toBriefView).toList());
         return summary;
     }

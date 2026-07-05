@@ -414,4 +414,93 @@ public final class Requests {
             private String remark;
         }
     }
+
+    @Data
+    public static class DeviceInspectionPlanSaveRequest {
+        private String planCode;
+        @NotBlank(message = "计划名称不能为空")
+        private String planName;
+        private Long deviceId;
+        private Long categoryId;
+        private String cycleType;
+        @NotEmpty(message = "点检项目不能为空")
+        private List<String> checkItems;
+        private Boolean enabled;
+        private String remark;
+    }
+
+    @Data
+    public static class DeviceInspectionSubmitRequest {
+        @NotNull(message = "设备ID不能为空")
+        private Long deviceId;
+        private Long planId;
+        @NotEmpty(message = "点检项不能为空")
+        private List<DeviceInspectionItemRequest> items;
+        private String remark;
+
+        @Data
+        public static class DeviceInspectionItemRequest {
+            @NotBlank(message = "点检项名称不能为空")
+            private String itemName;
+            @NotNull(message = "是否正常不能为空")
+            private Boolean isNormal;
+            private String remark;
+        }
+    }
+
+    @Data
+    public static class DeviceMaintenancePlanSaveRequest {
+        private String planCode;
+        @NotBlank(message = "计划名称不能为空")
+        private String planName;
+        private Long deviceId;
+        private Long categoryId;
+        private String cycleType;
+        @NotEmpty(message = "保养项目不能为空")
+        private List<String> maintenanceItems;
+        @com.fasterxml.jackson.annotation.JsonFormat(pattern = "yyyy-MM-dd")
+        private java.time.LocalDate nextDueDate;
+        private Boolean enabled;
+        private String remark;
+    }
+
+    @Data
+    public static class DeviceMaintenanceSubmitRequest {
+        @NotNull(message = "设备ID不能为空")
+        private Long deviceId;
+        private Long planId;
+        @NotEmpty(message = "保养项不能为空")
+        private List<DeviceMaintenanceItemRequest> items;
+        private String remark;
+
+        @Data
+        public static class DeviceMaintenanceItemRequest {
+            @NotBlank(message = "保养项名称不能为空")
+            private String itemName;
+            @NotNull(message = "是否完成不能为空")
+            private Boolean done;
+            private String remark;
+        }
+    }
+
+    @Data
+    public static class DeviceRepairCreateRequest {
+        @NotNull(message = "设备ID不能为空")
+        private Long deviceId;
+        @NotBlank(message = "故障原因不能为空")
+        private String faultReason;
+        private String faultCode;
+        private String description;
+        private Long eventId;
+        private String remark;
+    }
+
+    @Data
+    public static class DeviceRepairHandleRequest {
+        @NotBlank(message = "维修措施不能为空")
+        private String repairAction;
+        @NotBlank(message = "维修结果不能为空")
+        private String repairResult;
+        private String remark;
+    }
 }

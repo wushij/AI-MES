@@ -101,7 +101,7 @@
             <div class="chat-panel__title-wrap">
               <div>
                 <div class="chat-title">{{ activeSession?.title || '新对话' }}</div>
-                <div class="chat-subtitle">AI-MES 助手可协助查询工单、异常、物料及排产相关信息。</div>
+                <div class="chat-subtitle">AI-MES 助手可协助查询工单、异常、物料、设备及排产相关信息。</div>
               </div>
             </div>
             <el-button v-if="historyCollapsed" class="chat-panel__new-btn" type="primary" round @click="startConversation()">

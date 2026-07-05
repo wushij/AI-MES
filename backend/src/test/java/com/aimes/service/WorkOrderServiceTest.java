@@ -24,6 +24,9 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -124,6 +127,45 @@ class WorkOrderServiceTest {
         assertEquals("producing", result.get("status"));
         verify(prodWorkOrderMapper).updateById(order);
         verify(prodProcessRecordMapper).updateById(first);
+    }
+
+    @Test
+    void complete_whenAlreadyDone_shouldSkipPickAndUpdates() {
+        ProdWorkOrder order = new ProdWorkOrder();
+        order.setId(1L);
+        order.setOrderNo("WO-DONE");
+        order.setStatus("done");
+        order.setProgress(100);
+        when(prodWorkOrderMapper.selectById(1L)).thenReturn(order);
+        stubDetailQueries(order);
+
+        Map<String, Object> result = workOrderService.complete(1L);
+
+        assertEquals("done", result.get("status"));
+        verify(materialService, never()).pickForWorkOrder(anyLong(), anyLong(), anyInt(), any());
+        verify(prodWorkOrderMapper, never()).updateById(order);
+    }
+
+    @Test
+    void complete_whenProducing_shouldPickMaterialsOnce() {
+        ProdWorkOrder order = new ProdWorkOrder();
+        order.setId(2L);
+        order.setOrderNo("WO-PROD");
+        order.setStatus("producing");
+        order.setProgress(80);
+        order.setProductId(10L);
+        order.setOrderQty(1);
+        when(prodWorkOrderMapper.selectById(2L)).thenReturn(order);
+        when(aimesProperties.isBomPickOnComplete()).thenReturn(true);
+        when(productService.hasActiveBom(10L)).thenReturn(true);
+        when(productService.computeBomDemand(10L, 1)).thenReturn(List.of(Map.of("materialId", 1L, "requiredQty", 1)));
+        stubDetailQueries(order);
+
+        workOrderService.complete(2L);
+
+        assertEquals("done", order.getStatus());
+        verify(materialService).pickForWorkOrder(2L, 10L, 1, List.of(Map.of("materialId", 1L, "requiredQty", 1)));
+        verify(prodWorkOrderMapper).updateById(order);
     }
 
     private void stubDetailQueries(ProdWorkOrder order) {

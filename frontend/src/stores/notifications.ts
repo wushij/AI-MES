@@ -20,6 +20,20 @@ export interface NotificationItem {
   isRead: boolean
 }
 
+export interface DeviceAlertPushPayload {
+  deviceId: number | string
+  deviceCode?: string
+  deviceName?: string
+  message?: string
+  todayAlertCount?: number
+  alert?: {
+    alertType?: string
+    alertTypeLabel?: string
+    title?: string
+    targetUrl?: string
+  }
+}
+
 const MAX_RECONNECT_ATTEMPTS = 8
 const BASE_RECONNECT_DELAY_MS = 1000
 
@@ -61,6 +75,8 @@ function buildWebSocketUrl(token: string) {
 export const useNotificationStore = defineStore('notifications', () => {
   const items = ref<NotificationItem[]>([])
   const connected = ref(false)
+  const deviceAlertVersion = ref(0)
+  const lastDeviceAlert = ref<DeviceAlertPushPayload | null>(null)
 
   let socket: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -107,17 +123,37 @@ export const useNotificationStore = defineStore('notifications', () => {
 
   function handleSocketMessage(event: MessageEvent<string>) {
     try {
-      const payload = JSON.parse(event.data) as { type?: string; data?: SysNotification }
+      const payload = JSON.parse(event.data) as {
+        type?: string
+        data?: SysNotification | DeviceAlertPushPayload
+      }
+
+      if (payload.type === 'device_alert' && payload.data) {
+        const alertData = payload.data as DeviceAlertPushPayload
+        lastDeviceAlert.value = alertData
+        deviceAlertVersion.value += 1
+
+        const label = alertData.alert?.alertTypeLabel || '设备报警'
+        ElNotification({
+          title: label,
+          message: alertData.message || `${alertData.deviceCode ?? ''} ${alertData.deviceName ?? ''}`.trim() || '收到新的设备报警',
+          type: 'error',
+          position: 'top-right',
+          duration: 5000
+        })
+        return
+      }
+
       if (payload.type !== 'notification' || !payload.data) {
         return
       }
 
-      prependNotification(payload.data)
+      prependNotification(payload.data as SysNotification)
 
-      const type = payload.data.type
+      const type = (payload.data as SysNotification).type
       ElNotification({
-        title: payload.data.title || '新通知',
-        message: payload.data.content,
+        title: (payload.data as SysNotification).title || '新通知',
+        message: (payload.data as SysNotification).content,
         type: type === 'danger' ? 'error' : type === 'warning' ? 'warning' : 'info',
         position: 'top-right',
         duration: 4500
@@ -187,12 +223,16 @@ export const useNotificationStore = defineStore('notifications', () => {
   function reset() {
     disconnect()
     items.value = []
+    deviceAlertVersion.value = 0
+    lastDeviceAlert.value = null
     reconnectAttempts = 0
   }
 
   return {
     items,
     connected,
+    deviceAlertVersion,
+    lastDeviceAlert,
     unreadItems,
     readItems,
     unreadCount,

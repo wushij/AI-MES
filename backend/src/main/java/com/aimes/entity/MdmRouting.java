@@ -1,6 +1,8 @@
 package com.aimes.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -15,11 +17,19 @@ public class MdmRouting {
     private Long id;
     private String routeCode;
     private String routeName;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long productId;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String productName;
+
     private String version;
     private String status;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String rejectedReason;
+
     private Integer isDefault;
     private Integer enabled;
     private String remark;

@@ -146,9 +146,12 @@ public class ProcessRouteService {
         if (hasOperations(request.getOperations())) {
             saveOperations(routing.getId(), request.getOperations());
         }
-        recordHistory(routing.getId(), routing.getVersion(), "create", "新建工艺路线");
+        String opSummary = summarizeOperations(request.getOperations());
+        recordHistory(routing.getId(), routing.getVersion(), "create",
+                "新建工艺路线「" + routing.getRouteName() + "」" + opSummary);
         if ("published".equals(routing.getStatus())) {
-            recordHistory(routing.getId(), routing.getVersion(), "publish", "发布工艺 " + routing.getVersion());
+            recordHistory(routing.getId(), routing.getVersion(), "publish",
+                    "发布工艺 " + routing.getVersion() + opSummary);
         } else if ("pending_approval".equals(routing.getStatus())) {
             recordHistory(routing.getId(), routing.getVersion(), "submit", "提交工艺审批");
         }
@@ -163,6 +166,7 @@ public class ProcessRouteService {
             throw new BusinessException("至少配置一道工序");
         }
         MdmRouting routing = requireRouting(id);
+        RoutingSnapshot before = captureRoutingSnapshot(routing);
         if (StringUtils.hasText(request.getRouteCode()) && !request.getRouteCode().equals(routing.getRouteCode())) {
             ensureUniqueCode(request.getRouteCode(), id);
             routing.setRouteCode(request.getRouteCode().trim());
@@ -171,11 +175,13 @@ public class ProcessRouteService {
         applyProductBinding(routing, request.getProductId(), request.getProductName());
         routing.setRemark(request.getRemark());
         routing.setUpdatedTime(LocalDateTime.now());
-        applySaveMode(routing, request.getSaveMode());
+        SaveModeAction saveAction = applySaveMode(routing, request.getSaveMode());
         mdmRoutingMapper.updateById(routing);
         if (hasOperations(request.getOperations())) {
             saveOperations(routing.getId(), request.getOperations());
         }
+        String changeSummary = buildChangeSummary(before, routing, request);
+        recordSaveHistory(routing, saveAction, changeSummary);
         return toRouteView(routing, true);
     }
 
@@ -560,39 +566,244 @@ public class ProcessRouteService {
         return item;
     }
 
-    private void applySaveMode(MdmRouting routing, String saveMode) {
+    private SaveModeAction applySaveMode(MdmRouting routing, String saveMode) {
         String mode = StringUtils.hasText(saveMode) ? saveMode.trim().toLowerCase() : "draft";
-        switch (mode) {
+        return switch (mode) {
             case "publish" -> {
                 if (canDirectPublish()) {
                     routing.setVersion(bumpVersion(routing.getVersion()));
                     routing.setStatus("published");
                     routing.setEnabled(1);
                     routing.setRejectedReason(null);
-                    recordHistory(routing.getId(), routing.getVersion(), "publish", "保存并发布 " + routing.getVersion());
+                    yield new SaveModeAction("publish", "保存并发布 " + routing.getVersion());
                 } else {
                     routing.setStatus("pending_approval");
                     routing.setEnabled(0);
-                    recordHistory(routing.getId(), routing.getVersion(), "submit", "提交工艺审批");
+                    yield new SaveModeAction("submit", "提交工艺审批");
                 }
             }
             case "submit" -> {
                 routing.setStatus("pending_approval");
                 routing.setEnabled(0);
                 routing.setRejectedReason(null);
-                recordHistory(routing.getId(), routing.getVersion(), "submit", "提交工艺审批");
+                yield new SaveModeAction("submit", "提交工艺审批");
             }
             default -> {
                 String currentStatus = routing.getStatus();
                 if ("published".equals(currentStatus) || "disabled".equals(currentStatus) || "pending_approval".equals(currentStatus)) {
-                    recordHistory(routing.getId(), routing.getVersion(), "update", "更新工艺基本信息");
-                    return;
+                    yield new SaveModeAction("update", "更新已发布工艺");
                 }
                 routing.setStatus("draft");
                 routing.setEnabled(0);
-                recordHistory(routing.getId(), routing.getVersion(), "update", "保存工艺草稿");
+                yield new SaveModeAction("update", "保存工艺草稿");
+            }
+        };
+    }
+
+    private void recordSaveHistory(MdmRouting routing, SaveModeAction action, String changeSummary) {
+        String desc = action.baseDesc();
+        if (StringUtils.hasText(changeSummary)) {
+            desc = desc + "：" + changeSummary;
+        }
+        recordHistory(routing.getId(), routing.getVersion(), action.actionType(), desc);
+    }
+
+    private String summarizeOperations(List<ProcessOperationItem> operations) {
+        if (operations == null || operations.isEmpty()) {
+            return "";
+        }
+        String names = operations.stream()
+                .map(ProcessOperationItem::getOperationName)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining("、"));
+        return "，配置 " + operations.size() + " 道工序" + (StringUtils.hasText(names) ? "（" + names + "）" : "");
+    }
+
+    private RoutingSnapshot captureRoutingSnapshot(MdmRouting routing) {
+        RoutingSnapshot snapshot = new RoutingSnapshot();
+        snapshot.routeCode = routing.getRouteCode();
+        snapshot.routeName = routing.getRouteName();
+        snapshot.productName = routing.getProductName();
+        snapshot.remark = routing.getRemark();
+        snapshot.operations = listOperations(routing.getId()).stream()
+                .map(this::captureOperationSnapshot)
+                .toList();
+        return snapshot;
+    }
+
+    private OperationSnapshot captureOperationSnapshot(MdmOperation operation) {
+        OperationSnapshot snapshot = new OperationSnapshot();
+        snapshot.id = operation.getId();
+        snapshot.seqNo = operation.getSeqNo();
+        snapshot.operationCode = operation.getOperationCode();
+        snapshot.operationName = operation.getOperationName();
+        snapshot.standardHours = operation.getStandardHours();
+        snapshot.deviceLabels = listDeviceBindings(operation.getId()).stream()
+                .map(this::deviceBindingLabel)
+                .sorted()
+                .toList();
+        snapshot.materialCount = listMaterialBindings(operation.getId()).size();
+        snapshot.paramCount = listParameters(operation.getId()).size();
+        return snapshot;
+    }
+
+    private String deviceBindingLabel(Map<String, Object> bind) {
+        if ("category".equals(bind.get("bindType"))) {
+            Object name = bind.get("categoryName");
+            return "分类:" + (name != null ? name : bind.get("categoryId"));
+        }
+        Object code = bind.get("deviceCode");
+        Object name = bind.get("deviceName");
+        if (code != null && name != null) {
+            return code + " " + name;
+        }
+        return "设备:" + bind.get("deviceId");
+    }
+
+    private List<String> formatDeviceBindingLabels(ProcessOperationItem item) {
+        List<String> labels = new ArrayList<>();
+        if (item.getCategoryIds() != null) {
+            for (Long categoryId : item.getCategoryIds()) {
+                DevDeviceCategory category = devDeviceCategoryMapper.selectById(categoryId);
+                labels.add("分类:" + (category != null ? category.getCategoryName() : categoryId));
             }
         }
+        if (item.getDeviceIds() != null) {
+            for (Long deviceId : item.getDeviceIds()) {
+                DevDevice device = devDeviceMapper.selectById(deviceId);
+                if (device != null) {
+                    labels.add(device.getDeviceCode() + " " + device.getDeviceName());
+                } else {
+                    labels.add("设备:" + deviceId);
+                }
+            }
+        }
+        labels.sort(String::compareTo);
+        return labels;
+    }
+
+    private String buildChangeSummary(RoutingSnapshot before, MdmRouting afterRouting, ProcessRouteSaveRequest request) {
+        List<String> parts = new ArrayList<>();
+        appendTextChange(parts, "工艺编号", before.routeCode, afterRouting.getRouteCode());
+        appendTextChange(parts, "工艺名称", before.routeName, afterRouting.getRouteName());
+        appendTextChange(parts, "适用产品", before.productName, afterRouting.getProductName());
+        appendTextChange(parts, "备注", before.remark, afterRouting.getRemark());
+
+        if (request.getOperations() != null) {
+            Map<Long, OperationSnapshot> beforeById = before.operations.stream()
+                    .filter(op -> op.id != null)
+                    .collect(Collectors.toMap(op -> op.id, op -> op, (a, b) -> a));
+            Set<Long> retainedIds = new HashSet<>();
+            for (ProcessOperationItem item : request.getOperations()) {
+                if (item.getId() == null) {
+                    parts.add("新增工序「" + item.getOperationName() + "」");
+                    continue;
+                }
+                retainedIds.add(item.getId());
+                OperationSnapshot old = beforeById.get(item.getId());
+                if (old != null) {
+                    appendOperationChanges(parts, old, item);
+                }
+            }
+            for (OperationSnapshot old : before.operations) {
+                if (old.id != null && !retainedIds.contains(old.id)) {
+                    parts.add("删除工序「" + old.operationName + "」");
+                }
+            }
+        }
+
+        return joinChangeSummary(parts);
+    }
+
+    private void appendTextChange(List<String> parts, String label, String before, String after) {
+        String left = normalizeText(before);
+        String right = normalizeText(after);
+        if (!Objects.equals(left, right)) {
+            parts.add(label + "：" + displayText(left) + " → " + displayText(right));
+        }
+    }
+
+    private void appendOperationChanges(List<String> parts, OperationSnapshot before, ProcessOperationItem after) {
+        String opLabel = "工序「" + before.operationName + "」";
+        if (!Objects.equals(normalizeText(before.operationName), normalizeText(after.getOperationName()))) {
+            parts.add(opLabel + "名称：" + before.operationName + " → " + after.getOperationName());
+        }
+        if (!Objects.equals(normalizeText(before.operationCode), normalizeText(after.getOperationCode()))) {
+            parts.add(opLabel + "编号：" + displayText(before.operationCode) + " → " + displayText(after.getOperationCode()));
+        }
+        if (!Objects.equals(before.seqNo, after.getSeqNo())) {
+            parts.add(opLabel + "序号：" + before.seqNo + " → " + after.getSeqNo());
+        }
+        if (!Objects.equals(before.standardHours, after.getStandardHours())) {
+            parts.add(opLabel + "标准工时：" + formatHours(before.standardHours) + " → " + formatHours(after.getStandardHours()));
+        }
+        List<String> afterDeviceLabels = formatDeviceBindingLabels(after);
+        if (!new HashSet<>(before.deviceLabels).equals(new HashSet<>(afterDeviceLabels))) {
+            parts.add(opLabel + "设备绑定：" + joinLabels(before.deviceLabels) + " → " + joinLabels(afterDeviceLabels));
+        }
+        int afterMaterialCount = after.getMaterials() == null ? 0 : after.getMaterials().size();
+        if (before.materialCount != afterMaterialCount) {
+            parts.add(opLabel + "物料：" + before.materialCount + " 项 → " + afterMaterialCount + " 项");
+        }
+        int afterParamCount = after.getParameters() == null ? 0 : (int) after.getParameters().stream()
+                .filter(param -> StringUtils.hasText(param.getParamName()))
+                .count();
+        if (before.paramCount != afterParamCount) {
+            parts.add(opLabel + "参数：" + before.paramCount + " 项 → " + afterParamCount + " 项");
+        }
+    }
+
+    private String joinChangeSummary(List<String> parts) {
+        if (parts.isEmpty()) {
+            return "未检测到字段变更";
+        }
+        if (parts.size() <= 6) {
+            return String.join("；", parts);
+        }
+        return String.join("；", parts.subList(0, 6)) + " 等 " + parts.size() + " 项变更";
+    }
+
+    private String joinLabels(List<String> labels) {
+        if (labels == null || labels.isEmpty()) {
+            return "无";
+        }
+        return String.join("、", labels);
+    }
+
+    private String normalizeText(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private String displayText(String value) {
+        return StringUtils.hasText(value) ? value : "空";
+    }
+
+    private String formatHours(Double hours) {
+        if (hours == null) {
+            return "空";
+        }
+        return hours + "h";
+    }
+
+    private record SaveModeAction(String actionType, String baseDesc) {}
+
+    private static final class RoutingSnapshot {
+        private String routeCode;
+        private String routeName;
+        private String productName;
+        private String remark;
+        private List<OperationSnapshot> operations = List.of();
+    }
+
+    private static final class OperationSnapshot {
+        private Long id;
+        private Integer seqNo;
+        private String operationCode;
+        private String operationName;
+        private Double standardHours;
+        private List<String> deviceLabels = List.of();
+        private int materialCount;
+        private int paramCount;
     }
 
     private String resolveInitialStatus(String saveMode) {

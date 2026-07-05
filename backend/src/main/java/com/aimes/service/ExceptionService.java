@@ -37,6 +37,7 @@ public class ExceptionService {
     private final SysNotificationService sysNotificationService;
     private final DevDeviceMapper devDeviceMapper;
     private final DeviceService deviceService;
+    private final DeviceAlertPushService deviceAlertPushService;
 
     @Transactional
     public void deleteByWorkOrderId(Long workOrderId) {
@@ -134,6 +135,8 @@ public class ExceptionService {
                     "/exceptions"
             );
         }
+
+        deviceAlertPushService.pushExceptionAlert(event);
 
         return toView(event);
     }

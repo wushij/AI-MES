@@ -29,6 +29,7 @@
         <div class="toolbar__actions">
           <el-button class="action-btn-reset" @click="resetFilters">重置</el-button>
           <el-button class="action-btn-category" @click="categoryDialogVisible = true">分类管理</el-button>
+          <el-button class="action-btn-category" @click="planManagerVisible = true">计划管理</el-button>
           <el-button type="primary" class="action-btn-create" @click="openCreate">新建设备</el-button>
           <el-button type="primary" class="action-btn-refresh" @click="loadDevices">刷新</el-button>
         </div>
@@ -49,18 +50,49 @@
             <el-tag size="small" :type="deviceStatusTagType(row.status)">{{ row.statusLabel ?? deviceStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="今日运行" min-width="100" align="center">
+          <template #default="{ row }">
+            <span class="duration-text duration-text--run">{{ row.todayRunLabel || formatDurationMinutes(row.todayRunMinutes) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="todayAlertCount" label="今日报警" width="100" align="center">
           <template #default="{ row }">
-            <el-tag v-if="(row.todayAlertCount ?? 0) > 0" type="danger" size="small" effect="dark">{{ row.todayAlertCount }}</el-tag>
+            <button
+              v-if="(row.todayAlertCount ?? 0) > 0"
+              type="button"
+              class="alert-badge alert-badge--danger"
+              @click="openAlertDrawer(row)"
+            >
+              {{ row.todayAlertCount }}
+            </button>
             <span v-else class="text-muted">0</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="right" width="220" align="center">
+        <el-table-column prop="maintenanceOverdueCount" label="保养到期" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="(row.maintenanceOverdueCount ?? 0) > 0" type="warning" size="small" effect="dark">{{ row.maintenanceOverdueCount }}</el-tag>
+            <span v-else class="text-muted">0</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createdTime" label="创建时间" min-width="160" align="center">
+          <template #default="{ row }">{{ formatTime(row.createdTime) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" fixed="right" width="300" align="center">
           <template #default="{ row }">
             <div class="table-actions">
-              <el-button size="small" @click="goDetail(row)">详情</el-button>
-              <el-button size="small" @click="openEdit(row)">编辑</el-button>
-              <el-button size="small" type="danger" plain :loading="deletingId === row.id" @click="removeDevice(row)">删除</el-button>
+              <el-button size="small" class="action-btn action-btn--view" @click="goDetail(row)">详情</el-button>
+              <el-button size="small" class="action-btn action-btn--inspect" @click="openInspection(row)">点检</el-button>
+              <el-button size="small" class="action-btn action-btn--maintain" @click="openMaintenance(row)">保养</el-button>
+              <el-button size="small" class="action-btn action-btn--repair" @click="openRepair(row)">维修</el-button>
+              <el-dropdown trigger="click" @command="(cmd: string) => handleMoreAction(cmd, row)">
+                <el-button size="small" class="action-btn action-btn--more">更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </template>
         </el-table-column>
@@ -150,42 +182,72 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="categoryDialogVisible" title="设备分类管理" width="640px">
-      <div class="category-toolbar">
-        <el-tree-select
-          v-model="categoryForm.parentId"
-          :data="categoryTreeOptions"
-          :props="{ label: 'categoryName', value: 'id', children: 'children' }"
-          check-strictly
-          placeholder="父分类"
-          class="category-parent-select"
-        />
-        <el-input v-model="categoryForm.categoryName" placeholder="分类名称" class="category-name-input" />
-        <el-input-number v-model="categoryForm.sortNo" :min="0" :max="999" controls-position="right" class="category-sort-input" />
-        <el-button type="primary" :loading="categorySubmitting" @click="submitCategory">添加</el-button>
-      </div>
-      <el-tree
-        :data="categoryTree"
-        :props="{ label: 'categoryName', children: 'children' }"
-        node-key="id"
-        default-expand-all
-        class="category-tree"
-      >
-        <template #default="{ data }">
-          <div class="category-tree-node">
-            <span class="category-tree-node__name">{{ data.categoryName }}</span>
-            <span class="category-tree-node__sort">排序 {{ data.sortNo ?? 0 }}</span>
-            <div class="category-tree-node__actions">
-              <el-button size="small" link type="primary" @click.stop="openEditCategory(data)">编辑</el-button>
-              <el-button size="small" link type="danger" @click.stop="removeCategory(data)">删除</el-button>
-            </div>
+    <el-dialog
+      v-model="categoryDialogVisible"
+      title="设备分类管理"
+      width="680px"
+      append-to-body
+      class="category-dialog"
+      @open="loadCategories"
+    >
+      <div class="category-add-panel">
+        <div class="category-section-title">新增分类</div>
+        <div class="category-add-form">
+          <div class="category-field">
+            <span class="category-field__label">父分类</span>
+            <el-tree-select
+              v-model="categoryForm.parentId"
+              :data="categoryTreeOptions"
+              :props="{ label: 'categoryName', value: 'id', children: 'children' }"
+              check-strictly
+              placeholder="选择父分类"
+              class="category-field__control"
+            />
           </div>
-        </template>
-      </el-tree>
+          <div class="category-field category-field--grow">
+            <span class="category-field__label">分类名称</span>
+            <el-input v-model="categoryForm.categoryName" placeholder="如：装配设备" class="category-field__control" />
+          </div>
+          <div class="category-field category-field--sort">
+            <span class="category-field__label">排序</span>
+            <el-input-number v-model="categoryForm.sortNo" :min="0" :max="999" controls-position="right" class="category-field__control" />
+          </div>
+          <el-button type="primary" class="category-add-btn" :loading="categorySubmitting" @click="submitCategory">添加</el-button>
+        </div>
+      </div>
+
+      <div class="category-list-panel">
+        <div class="category-section-title category-section-title--list">
+          <span>分类列表</span>
+          <span class="category-count">{{ flatCategories.length }} 项</span>
+        </div>
+        <el-empty v-if="!categoryTree.length" description="暂无分类，请在上方添加" :image-size="72" />
+        <el-tree
+          v-else
+          :data="categoryTree"
+          :props="{ label: 'categoryName', children: 'children' }"
+          node-key="id"
+          default-expand-all
+          class="category-tree"
+        >
+          <template #default="{ data, node }">
+            <div class="category-tree-node" :class="{ 'is-child': node.level > 1 }">
+              <div class="category-tree-node__main">
+                <span class="category-tree-node__name">{{ data.categoryName }}</span>
+                <el-tag size="small" type="info" effect="plain" round class="category-sort-tag">排序 {{ data.sortNo ?? 0 }}</el-tag>
+              </div>
+              <div class="category-tree-node__actions">
+                <el-button size="small" class="cat-pill-btn cat-pill-btn--edit" @click.stop="openEditCategory(data)">编辑</el-button>
+                <el-button size="small" class="cat-pill-btn cat-pill-btn--delete" @click.stop="removeCategory(data)">删除</el-button>
+              </div>
+            </div>
+          </template>
+        </el-tree>
+      </div>
     </el-dialog>
 
-    <el-dialog v-model="categoryEditVisible" title="编辑分类" width="480px" append-to-body>
-      <el-form label-width="80px">
+    <el-dialog v-model="categoryEditVisible" title="编辑分类" width="480px" append-to-body class="category-edit-dialog">
+      <el-form label-width="80px" class="category-edit-form">
         <el-form-item label="父分类">
           <el-tree-select
             v-model="categoryEditForm.parentId"
@@ -197,27 +259,69 @@
           />
         </el-form-item>
         <el-form-item label="分类名称">
-          <el-input v-model="categoryEditForm.categoryName" />
+          <el-input v-model="categoryEditForm.categoryName" placeholder="分类名称" />
         </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="categoryEditForm.sortNo" :min="0" :max="999" class="full-width" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="categoryEditVisible = false">取消</el-button>
-        <el-button type="primary" :loading="categoryEditSubmitting" @click="submitEditCategory">保存</el-button>
+        <div class="category-dialog-footer">
+          <el-button class="btn-cancel" @click="categoryEditVisible = false">取消</el-button>
+          <el-button type="primary" class="btn-submit" :loading="categoryEditSubmitting" @click="submitEditCategory">保存</el-button>
+        </div>
       </template>
     </el-dialog>
 
     <!-- 设备详情弹窗 -->
     <el-dialog v-model="detailDialogVisible" title="设备详情" width="1000px" append-to-body destroy-on-close>
-      <DeviceDetail v-if="activeDeviceId" :id="activeDeviceId" @close="detailDialogVisible = false" @save-success="loadDevices(); loadSummary();" />
+      <DeviceDetail
+        v-if="activeDeviceId"
+        :id="activeDeviceId"
+        :initial-tab="detailInitialTab"
+        @close="detailDialogVisible = false"
+        @save-success="loadDevices(); loadSummary();"
+      />
     </el-dialog>
+
+    <DeviceInspectionDialog
+      v-if="inspectionDevice"
+      v-model:visible="inspectionDialogVisible"
+      :device-id="inspectionDevice.id"
+      :device-name="inspectionDevice.deviceName"
+      @success="onInspectionSuccess"
+    />
+    <DeviceMaintenanceDialog
+      v-if="maintenanceDevice"
+      v-model:visible="maintenanceDialogVisible"
+      :device-id="maintenanceDevice.id"
+      :device-name="maintenanceDevice.deviceName"
+      @success="onMaintenanceSuccess"
+    />
+    <DeviceRepairDialog
+      v-if="repairDevice"
+      v-model:visible="repairDialogVisible"
+      :device-id="repairDevice.id"
+      :device-name="repairDevice.deviceName"
+      @success="onRepairSuccess"
+    />
+
+    <DevicePlanManager v-model:visible="planManagerVisible" @changed="loadDevices(); loadSummary();" />
+
+    <el-drawer v-model="alertDrawerVisible" :title="`今日报警 — ${alertDrawerDevice?.deviceName || ''}`" size="420px" append-to-body destroy-on-close>
+      <DeviceAlertPanel
+        v-if="alertDrawerDevice"
+        :alerts="alertDrawerAlerts"
+        empty-text="今日暂无设备报警"
+        @view="handleDrawerAlertView"
+      />
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -229,9 +333,20 @@ import {
 } from '@/api/devices'
 import { DEVICE_STATUSES, deviceStatusLabel, deviceStatusTagType } from '@/utils/deviceLabels'
 import DeviceDetail from './DeviceDetail.vue'
+import DeviceInspectionDialog from '@/components/device/DeviceInspectionDialog.vue'
+import DeviceMaintenanceDialog from '@/components/device/DeviceMaintenanceDialog.vue'
+import DeviceRepairDialog from '@/components/device/DeviceRepairDialog.vue'
+import DeviceAlertPanel from '@/components/device/DeviceAlertPanel.vue'
+import DevicePlanManager from '@/components/device/DevicePlanManager.vue'
 import { confirmDelete } from '@/utils/confirmDelete'
+import { formatDurationMinutes } from '@/utils/duration'
+import { getDeviceTodayAlerts, type DeviceTodayAlert } from '@/api/devices'
+import { useNotificationStore } from '@/stores/notifications'
 
 const router = useRouter()
+const notificationStore = useNotificationStore()
+const { deviceAlertVersion, lastDeviceAlert } = storeToRefs(notificationStore)
+const planManagerVisible = ref(false)
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600', textAlign: 'center' as const }
 const loading = ref(false)
 const submitting = ref(false)
@@ -249,7 +364,17 @@ const categoryTree = ref<DeviceCategoryItem[]>([])
 const dialogMode = ref<'create' | 'edit'>('create')
 const editingId = ref<string | number | null>(null)
 const detailDialogVisible = ref(false)
+const detailInitialTab = ref('basic')
 const activeDeviceId = ref<string | number | null>(null)
+const inspectionDialogVisible = ref(false)
+const inspectionDevice = ref<DeviceItem | null>(null)
+const maintenanceDialogVisible = ref(false)
+const maintenanceDevice = ref<DeviceItem | null>(null)
+const repairDialogVisible = ref(false)
+const repairDevice = ref<DeviceItem | null>(null)
+const alertDrawerVisible = ref(false)
+const alertDrawerDevice = ref<DeviceItem | null>(null)
+const alertDrawerAlerts = ref<DeviceTodayAlert[]>([])
 const formRef = ref<FormInstance>()
 const categoryForm = reactive({ categoryName: '', parentId: 0 as number | string, sortNo: 0 })
 const categoryEditForm = reactive({ id: 0 as number | string, categoryName: '', parentId: 0 as number | string, sortNo: 0 })
@@ -391,8 +516,104 @@ function openEdit(row: DeviceItem) {
 }
 
 function goDetail(row: DeviceItem) {
+  detailInitialTab.value = 'basic'
   activeDeviceId.value = row.id
   detailDialogVisible.value = true
+}
+
+function formatTime(value?: string) {
+  if (!value) return '--'
+  return value.replace('T', ' ').slice(0, 19)
+}
+
+function handleMoreAction(command: string, row: DeviceItem) {
+  if (command === 'edit') {
+    openEdit(row)
+    return
+  }
+  if (command === 'delete') {
+    removeDevice(row)
+  }
+}
+
+async function openAlertDrawer(row: DeviceItem) {
+  alertDrawerDevice.value = row
+  alertDrawerVisible.value = true
+  try {
+    alertDrawerAlerts.value = await getDeviceTodayAlerts(row.id)
+  } catch (error) {
+    console.error(error)
+    alertDrawerAlerts.value = []
+    ElMessage.error('加载今日报警失败')
+  }
+}
+
+function handleDrawerAlertView(alert: DeviceTodayAlert) {
+  alertDrawerVisible.value = false
+  if (alert.source === 'exc_event') {
+    router.push('/exceptions')
+    return
+  }
+  if (alert.source === 'dev_maintenance_plan') {
+    maintenanceDevice.value = alertDrawerDevice.value
+    maintenanceDialogVisible.value = true
+    return
+  }
+  if (alert.source === 'dev_repair_order') {
+    detailInitialTab.value = 'repairs'
+    activeDeviceId.value = alertDrawerDevice.value?.id ?? null
+    detailDialogVisible.value = true
+  }
+}
+
+function openInspection(row: DeviceItem) {
+  inspectionDialogVisible.value = false
+  inspectionDevice.value = row
+  nextTick(() => {
+    inspectionDialogVisible.value = true
+  })
+}
+
+function openMaintenance(row: DeviceItem) {
+  maintenanceDialogVisible.value = false
+  maintenanceDevice.value = row
+  nextTick(() => {
+    maintenanceDialogVisible.value = true
+  })
+}
+
+function openRepair(row: DeviceItem) {
+  repairDevice.value = row
+  repairDialogVisible.value = true
+}
+
+function onInspectionSuccess() {
+  const deviceId = inspectionDevice.value?.id
+  loadDevices()
+  loadSummary()
+  if (deviceId != null) {
+    detailInitialTab.value = 'inspections'
+    activeDeviceId.value = deviceId
+    detailDialogVisible.value = true
+    ElMessage.success('点检已提交，已为您打开点检记录')
+  }
+}
+
+function onMaintenanceSuccess() {
+  const deviceId = maintenanceDevice.value?.id
+  loadDevices()
+  loadSummary()
+  if (deviceId != null) {
+    detailInitialTab.value = 'maintenances'
+    activeDeviceId.value = deviceId
+    detailDialogVisible.value = true
+    ElMessage.success('保养已提交，已为您打开保养记录')
+  }
+}
+
+function onRepairSuccess() {
+  loadDevices()
+  loadSummary()
 }
 
 async function submitForm() {
@@ -512,6 +733,27 @@ async function removeCategory(row: DeviceCategoryItem) {
 onMounted(async () => {
   await Promise.all([loadFormOptions(), loadCategories(), loadSummary()])
   loadDevices()
+})
+
+async function refreshOnDeviceAlert() {
+  await Promise.all([loadDevices(), loadSummary()])
+
+  const alertDeviceId = lastDeviceAlert.value?.deviceId
+  if (alertDeviceId == null) {
+    return
+  }
+
+  if (alertDrawerVisible.value && alertDrawerDevice.value?.id === alertDeviceId) {
+    try {
+      alertDrawerAlerts.value = await getDeviceTodayAlerts(alertDeviceId)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+}
+
+watch(deviceAlertVersion, () => {
+  void refreshOnDeviceAlert()
 })
 </script>
 
@@ -686,49 +928,198 @@ onMounted(async () => {
   outline: none !important;
 }
 
-.category-toolbar {
+.category-dialog :deep(.el-dialog) {
+  border-radius: 16px !important;
+  overflow: hidden;
+}
+.category-dialog :deep(.el-dialog__header) {
+  margin-right: 0;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.category-dialog :deep(.el-dialog__body) {
+  padding: 16px 22px 20px;
+  background: #f8fafc;
+}
+.category-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 10px;
+}
+.category-section-title--list {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
 }
-.category-parent-select {
-  width: 160px;
+.category-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
 }
-.category-name-input {
-  flex: 1;
+.category-add-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  margin-bottom: 14px;
+}
+.category-add-form {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.category-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   min-width: 140px;
 }
-.category-sort-input {
-  width: 110px;
+.category-field--grow {
+  flex: 1;
+  min-width: 160px;
+}
+.category-field--sort {
+  width: 108px;
+  min-width: 108px;
+}
+.category-field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+.category-field__control {
+  width: 100%;
+}
+.category-add-btn {
+  border-radius: 18px !important;
+  height: 38px !important;
+  padding: 0 22px !important;
+  font-weight: 600 !important;
+  background: #0f172a !important;
+  border: none !important;
+  margin-bottom: 1px;
+}
+.category-add-btn:hover {
+  background: #1e293b !important;
+}
+.category-list-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 12px 10px;
 }
 .category-tree {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 8px 12px;
-  max-height: 320px;
+  max-height: 340px;
   overflow-y: auto;
+  background: transparent;
+}
+.category-tree :deep(.el-tree-node__content) {
+  height: auto;
+  min-height: 42px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+.category-tree :deep(.el-tree-node__content:hover) {
+  background: #f8fafc;
+}
+.category-tree :deep(.el-tree-node__expand-icon) {
+  color: #94a3b8;
+  font-size: 14px;
 }
 .category-tree-node {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
-  padding-right: 8px;
+  min-height: 34px;
+  padding: 2px 4px 2px 0;
+}
+.category-tree-node.is-child .category-tree-node__name {
+  font-weight: 500;
+  color: #475569;
+}
+.category-tree-node__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 .category-tree-node__name {
   font-weight: 600;
-  color: #334155;
+  color: #1e293b;
+  font-size: 14px;
 }
-.category-tree-node__sort {
-  font-size: 12px;
-  color: #94a3b8;
+.category-sort-tag {
+  border: none !important;
+  background: #f1f5f9 !important;
+  color: #64748b !important;
+  font-weight: 600 !important;
 }
 .category-tree-node__actions {
-  margin-left: auto;
   display: flex;
-  gap: 4px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.cat-pill-btn {
+  border-radius: 16px !important;
+  padding: 4px 12px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  height: 26px !important;
+  background: #fff !important;
+  transition: all 0.2s ease !important;
+}
+.cat-pill-btn--edit {
+  color: #4f46e5 !important;
+  border: 1px solid #c7d2fe !important;
+}
+.cat-pill-btn--edit:hover {
+  background: #eef2ff !important;
+  border-color: #a5b4fc !important;
+}
+.cat-pill-btn--delete {
+  color: #ef4444 !important;
+  border: 1px solid #fecaca !important;
+}
+.cat-pill-btn--delete:hover {
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+  border-color: #fca5a5 !important;
+}
+.category-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.category-edit-dialog .btn-cancel,
+.category-dialog-footer .btn-cancel {
+  border-radius: 18px !important;
+  font-weight: 600 !important;
+}
+.category-edit-dialog .btn-submit,
+.category-dialog-footer .btn-submit {
+  border-radius: 18px !important;
+  font-weight: 600 !important;
+  background: #0f172a !important;
+  border: none !important;
+}
+.category-edit-dialog .btn-submit:hover,
+.category-dialog-footer .btn-submit:hover {
+  background: #1e293b !important;
+}
+.category-add-panel :deep(.el-input__wrapper),
+.category-edit-form :deep(.el-input__wrapper) {
+  border-radius: 10px !important;
+  box-shadow: 0 0 0 1px #e2e8f0 inset !important;
+}
+.category-add-panel :deep(.el-input__wrapper:hover),
+.category-edit-form :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px #c7d2fe inset !important;
 }
 .text-muted {
   color: #94a3b8;
@@ -750,6 +1141,61 @@ onMounted(async () => {
 }
 .table-actions :deep(.el-button + .el-button) {
   margin-left: 0 !important;
+}
+.action-btn {
+  border-radius: 16px !important;
+  font-weight: 600 !important;
+  padding: 4px 12px !important;
+}
+.action-btn--view {
+  color: #334155 !important;
+  border-color: #cbd5e1 !important;
+  background: #fff !important;
+}
+.action-btn--inspect {
+  color: #4f46e5 !important;
+  border-color: #c7d2fe !important;
+  background: #eef2ff !important;
+}
+.action-btn--maintain {
+  color: #b45309 !important;
+  border-color: #fde68a !important;
+  background: #fffbeb !important;
+}
+.action-btn--repair {
+  color: #b91c1c !important;
+  border-color: #fecaca !important;
+  background: #fef2f2 !important;
+}
+.action-btn--more {
+  color: #64748b !important;
+  border-color: #e2e8f0 !important;
+  background: #f8fafc !important;
+}
+.duration-text {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.duration-text--run {
+  color: #16a34a;
+}
+.alert-badge {
+  border: none;
+  border-radius: 999px;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.alert-badge--danger {
+  background: #dc2626;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
+}
+.alert-badge--danger:hover {
+  background: #b91c1c;
 }
 
 .table-pagination {

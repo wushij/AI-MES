@@ -89,6 +89,8 @@ public class DashboardService {
         stats.put("deviceRunningCount", deviceSummary.get("runningCount"));
         stats.put("deviceFaultCount", deviceSummary.get("faultCount"));
         stats.put("deviceTodayAlertCount", deviceSummary.get("todayAlertCount"));
+        stats.put("deviceMaintenanceOverdueCount", deviceSummary.get("maintenanceOverdueCount"));
+        stats.put("deviceAvgUtilizationRate", deviceSummary.get("avgUtilizationRate"));
         return stats;
     }
 

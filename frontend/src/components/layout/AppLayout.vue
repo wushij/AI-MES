@@ -34,7 +34,7 @@ watch(
 </script>
 
 <template>
-  <div class="app-layout">
+  <div class="app-layout-container">
     <el-alert
       v-if="backendUnavailable"
       type="warning"
@@ -43,19 +43,35 @@ watch(
       :closable="false"
       class="app-layout__offline-alert"
     />
-    <AppSidebar />
-    <div class="app-layout__main">
-      <AppHeader />
-      <main class="app-layout__content">
-        <router-view />
-      </main>
+    <div class="app-layout">
+      <AppSidebar />
+      <div class="app-layout__main">
+        <AppHeader />
+        <main class="app-layout__content">
+          <router-view />
+        </main>
+      </div>
+      <AiChatPanel />
+      <AiFloatBtn />
     </div>
-    <AiChatPanel />
-    <AiFloatBtn />
   </div>
 </template>
 
 <style scoped>
+.app-layout-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.app-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 .app-layout__offline-alert {
   margin: 0;
   border-radius: 0;

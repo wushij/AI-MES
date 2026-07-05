@@ -16,7 +16,8 @@ function buildAdminQuestions(): QuickQuestionDef[] {
     { text: 'AI-MES 是什么系统？' },
     { text: '今日车间生产概况如何？' },
     { text: '当前未处理异常有哪些？', permissions: ['异常上报'] },
-    { text: '哪些物料触发缺料预警？', permissions: ['物料'] }
+    { text: '哪些物料触发缺料预警？', permissions: ['物料'] },
+    { text: '现在有哪些设备？', permissions: ['设备'] }
   ]
 }
 

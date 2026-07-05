@@ -709,7 +709,7 @@ const applyDiffRows = computed(() => {
 const applyOverview = computed(() => {
   if (!result.value) return null
   const summary = (resultSummary.value || result.value.summary || '').trim()
-  const bottlenecks = appliedConstraints.deviceLoad ? (result.value.bottlenecks ?? []) : []
+  const bottlenecks = appliedConstraints.value.deviceLoad ? (result.value.bottlenecks ?? []) : []
   const priorityItems = (result.value.priorities ?? [])
     .filter((item) => {
       const reason = String(item.reason ?? '').trim()

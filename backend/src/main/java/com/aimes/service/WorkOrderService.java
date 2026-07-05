@@ -276,7 +276,9 @@ public class WorkOrderService {
 
         order.setProgress(request.getProgress());
         order.setProcessName(request.getProcessName());
-        order.setStatus(request.getProgress() >= 100 ? "done" : "producing");
+        if (request.getProgress() < 100) {
+            order.setStatus("producing");
+        }
         if (request.getRemark() != null) {
             order.setRemark(request.getRemark());
         }
@@ -326,6 +328,10 @@ public class WorkOrderService {
     @Transactional
     public Map<String, Object> complete(Long id) {
         ProdWorkOrder order = getOrder(id);
+        if ("done".equals(order.getStatus())) {
+            return detail(id);
+        }
+
         LocalDateTime completedAt = LocalDateTime.now();
         order.setProgress(100);
         order.setStatus("done");

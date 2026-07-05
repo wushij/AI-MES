@@ -5,6 +5,7 @@ export interface ProcessRecordItem {
   operationCode?: string
   seqNo?: number
   status?: string
+  deviceId?: number | string
   startTime?: string | null
   endTime?: string | null
   remark?: string | null
