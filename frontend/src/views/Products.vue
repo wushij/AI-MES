@@ -193,7 +193,13 @@
             </template>
             <el-table-column label="物料" min-width="220" align="center">
               <template #default="{ row }">
-                <el-select v-model="row.materialId" filterable placeholder="选择物料" class="bom-field full-width">
+                <el-select
+                  v-model="row.materialId"
+                  filterable
+                  placeholder="选择物料"
+                  class="bom-field full-width"
+                  @change="(id: string | number) => onBomMaterialChange(row, id)"
+                >
                   <el-option
                     v-for="m in materialOptions"
                     :key="m.id"
@@ -208,9 +214,11 @@
                 <el-input-number v-model="row.qty" :min="0.0001" :step="0.1" :controls="false" class="bom-field full-width" />
               </template>
             </el-table-column>
-            <el-table-column label="单位" width="88" align="center">
+            <el-table-column label="单位" width="100" align="center">
               <template #default="{ row }">
-                <el-input v-model="row.unit" class="bom-field" />
+                <el-select v-model="row.unit" placeholder="单位" class="bom-field full-width">
+                  <el-option v-for="u in unitOptions" :key="u" :label="u" :value="u" />
+                </el-select>
               </template>
             </el-table-column>
             <el-table-column label="损耗%" width="100" align="center">
@@ -220,7 +228,7 @@
             </el-table-column>
             <el-table-column label="操作" width="80" align="center">
               <template #default="{ $index }">
-                <el-button size="small" class="bom-delete-btn" @click="bomItems.splice($index, 1)">删除</el-button>
+                <el-button size="small" class="bom-delete-btn" @click="removeBomRow($index)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -238,7 +246,7 @@
 </template>
 
 <script setup lang="ts">
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { onMounted, reactive, ref } from 'vue'
 import { Goods } from '@element-plus/icons-vue'
@@ -248,6 +256,7 @@ import type { BomItem, Product } from '@/api/products'
 import { createProduct, deleteProduct, getProduct, getProducts, saveProductBom, updateProduct } from '@/api/products'
 import { getMaterialOptions } from '@/api/materials'
 import { normalizeList } from '@/utils/normalizeList'
+import { confirmDelete } from '@/utils/confirmDelete'
 
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600' }
 const loading = ref(false)
@@ -278,6 +287,7 @@ const detailVisible = ref(false)
 const detailProduct = ref<Product | null>(null)
 const bomItems = ref<BomItem[]>([])
 const materialOptions = ref<Array<{ id: number | string; materialCode: string; materialName: string; unit: string }>>([])
+const unitOptions = ['个', '件', '瓶', 'kg', '米', '套']
 
 onMounted(() => {
   loadProducts()
@@ -390,6 +400,25 @@ function addBomRow() {
   bomItems.value.push({ materialId: '', qty: 1, unit: '件', lossRate: 0 })
 }
 
+function onBomMaterialChange(row: BomItem, materialId: number | string) {
+  const material = materialOptions.value.find((m) => String(m.id) === String(materialId))
+  if (material?.unit) {
+    row.unit = material.unit
+  }
+}
+
+async function removeBomRow(index: number) {
+  const row = bomItems.value[index]
+  const material = materialOptions.value.find((m) => String(m.id) === String(row?.materialId))
+  const label = material ? `${material.materialCode} - ${material.materialName}` : `第 ${index + 1} 行`
+  const ok = await confirmDelete({
+    title: '删除 BOM 物料',
+    message: `确认删除 BOM 物料「${label}」？删除后需点击「保存 BOM」才会生效。`
+  })
+  if (!ok) return
+  bomItems.value.splice(index, 1)
+}
+
 async function saveBom() {
   if (!detailProduct.value) return
   const items = bomItems.value.filter((row) => row.materialId)
@@ -412,7 +441,11 @@ async function saveBom() {
 }
 
 async function removeProduct(row: Product) {
-  await ElMessageBox.confirm(`确认删除产品 ${row.productName}？`, '删除产品', { type: 'warning' })
+  const ok = await confirmDelete({
+    title: '删除产品',
+    message: `确认删除产品「${row.productName}」？此操作不可恢复。`
+  })
+  if (!ok) return
   deleteLoading.value = row.id
   try {
     await deleteProduct(row.id)

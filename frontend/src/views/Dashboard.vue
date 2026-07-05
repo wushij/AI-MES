@@ -19,16 +19,30 @@
       <template #template>
         <el-row :gutter="16">
           <el-col v-for="item in 4" :key="item" :xs="24" :sm="12" :lg="6">
-            <el-skeleton-item variant="rect" style="height: 96px; border-radius: 16px" />
+            <el-skeleton-item variant="rect" style="height: 88px; border-radius: 20px" />
           </el-col>
         </el-row>
       </template>
 
-      <el-row :gutter="16">
-        <el-col v-for="card in kpiCards" :key="card.title" :xs="24" :sm="12" :lg="6">
-          <KpiCard v-bind="card" />
-        </el-col>
-      </el-row>
+      <div class="dashboard-metrics-panel">
+        <div class="dashboard-metrics">
+          <div
+            v-for="card in kpiCards"
+            :key="card.title"
+            class="dashboard-metric"
+            :style="{ borderColor: card.color }"
+          >
+            <div class="dashboard-metric__label">{{ card.title }}</div>
+            <div class="dashboard-metric__value-row">
+              <span class="dashboard-metric__value" :style="{ color: card.color }">{{ card.value }}</span>
+              <span class="dashboard-metric__unit">{{ card.unit }}</span>
+            </div>
+            <div v-if="card.trendValue" class="dashboard-metric__trend" :class="`dashboard-metric__trend--${card.trend}`">
+              {{ card.trendText }}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <el-row :gutter="16" class="section-gap">
         <el-col :xs="24" :lg="12">
@@ -48,7 +62,7 @@
             <template #header>
               <div class="panel-card__header">
                 <span>近7日产出</span>
-                <el-tag effect="plain">件</el-tag>
+                <el-tag effect="plain">单</el-tag>
               </div>
             </template>
             <div v-if="outputTrend.length" ref="trendChartRef" class="chart-box"></div>
@@ -63,7 +77,14 @@
             <template #header>
               <div class="panel-card__header">
                 <span>设备状态</span>
-                <el-button v-if="userStore.canAccessPermission('设备')" link type="primary" @click="router.push('/devices')">设备管理</el-button>
+                <el-button
+                  v-if="userStore.canAccessPermission('设备')"
+                  size="small"
+                  class="panel-card__more-btn"
+                  @click="router.push('/devices')"
+                >
+                  查看全部
+                </el-button>
               </div>
             </template>
             <div class="device-kpi-row">
@@ -82,7 +103,7 @@
                 </template>
               </el-table-column>
             </el-table>
-            <el-empty v-else description="暂无设备数据" />
+            <el-empty v-else description="暂无异常设备" />
           </el-card>
         </el-col>
       </el-row>
@@ -93,7 +114,7 @@
             <template #header>
               <div class="panel-card__header">
                 <span>最新异常</span>
-                <el-button link type="primary" @click="router.push('/exceptions')">查看全部</el-button>
+                <el-button size="small" class="panel-card__more-btn" @click="router.push('/exceptions')">查看全部</el-button>
               </div>
             </template>
             <el-table v-if="exceptionList.length" :data="exceptionList" stripe border highlight-current-row :header-cell-style="tableHeaderStyle" class="panel-table">
@@ -117,7 +138,7 @@
             <template #header>
               <div class="panel-card__header">
                 <span>缺料预警</span>
-                <el-button link type="primary" @click="router.push('/materials')">查看全部</el-button>
+                <el-button size="small" class="panel-card__more-btn" @click="router.push('/materials')">查看全部</el-button>
               </div>
             </template>
             <el-table v-if="materialAlerts.length" :data="materialAlerts" stripe border highlight-current-row :header-cell-style="tableHeaderStyle" class="panel-table">
@@ -139,13 +160,12 @@
 
 <script setup lang="ts">
 import * as echarts from 'echarts'
-import { Box, Document, List, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
 import { getDashboardData } from '@/api/dashboard'
-import KpiCard from '@/components/common/KpiCard.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import { deviceStatusLabel, deviceStatusTagType } from '@/utils/deviceLabels'
@@ -163,6 +183,7 @@ interface DashboardSummary {
   deviceRunningCount?: number
   deviceFaultCount?: number
   deviceTodayAlertCount?: number
+  todayOutput?: number
 }
 interface TeamProgressItem { teamName: string; completedQty: number; totalQty: number; progress: number }
 interface OutputTrendItem { date: string; outputQty: number }
@@ -172,6 +193,7 @@ interface MaterialAlertItem { id: string | number; name: string; stockQty: numbe
 
 const router = useRouter()
 const userStore = useUserStore()
+const appStore = useAppStore()
 const loading = ref(false)
 const lastRefresh = ref('')
 const teamChartRef = ref<HTMLDivElement>()
@@ -190,10 +212,42 @@ const role = computed(() => userStore.role)
 const isSupervisor = computed(() => userStore.isSupervisor || userStore.isAdmin)
 const todayLabel = computed(() => formatDate(new Date()))
 const kpiCards = computed(() => [
-  { title: '今日计划', value: summary.planCount, unit: '条', icon: Document, color: '#1677FF', trend: inferTrend(summary.planTrend), trendValue: summary.planTrend },
-  { title: '在制工单', value: summary.inProgressCount, unit: '单', icon: List, color: '#13C2C2', trend: inferTrend(summary.inProgressTrend), trendValue: summary.inProgressTrend },
-  { title: '未处理异常', value: summary.openExceptionCount, unit: '项', icon: Warning, color: summary.openExceptionCount > 0 ? '#F5222D' : '#64748B', trend: summary.newExceptionCount > 0 ? 'up' as const : 'flat' as const, trendValue: `今日新增 ${summary.newExceptionCount}` },
-  { title: '缺料预警', value: summary.materialAlertCount, unit: '项', icon: Box, color: summary.materialAlertCount > 0 ? '#FA8C16' : '#64748B', trend: summary.newMaterialAlertCount > 0 ? 'up' as const : 'flat' as const, trendValue: `今日新增 ${summary.newMaterialAlertCount}` },
+  {
+    title: '今日计划',
+    value: summary.planCount,
+    unit: '条',
+    color: '#4f46e5',
+    trend: inferTrend(summary.planTrend),
+    trendValue: summary.planTrend,
+    trendText: summary.planTrend
+  },
+  {
+    title: '在制工单',
+    value: summary.inProgressCount,
+    unit: '单',
+    color: '#0d9488',
+    trend: inferTrend(summary.inProgressTrend),
+    trendValue: summary.inProgressTrend,
+    trendText: summary.inProgressTrend
+  },
+  {
+    title: '未处理异常',
+    value: summary.openExceptionCount,
+    unit: '项',
+    color: summary.openExceptionCount > 0 ? '#e11d48' : '#64748b',
+    trend: summary.newExceptionCount > 0 ? 'up' as const : 'flat' as const,
+    trendValue: String(summary.newExceptionCount),
+    trendText: `今日新增 ${summary.newExceptionCount}`
+  },
+  {
+    title: '缺料预警',
+    value: summary.materialAlertCount,
+    unit: '项',
+    color: summary.materialAlertCount > 0 ? '#a855f7' : '#64748b',
+    trend: summary.newMaterialAlertCount > 0 ? 'up' as const : 'flat' as const,
+    trendValue: String(summary.newMaterialAlertCount),
+    trendText: `今日新增 ${summary.newMaterialAlertCount}`
+  }
 ])
 
 onMounted(() => {
@@ -201,6 +255,12 @@ onMounted(() => {
   window.addEventListener('resize', resizeCharts)
   refreshTimer = setInterval(() => { void loadDashboard(true) }, 30000)
 })
+watch(
+  () => appStore.workshopSummary.todayOutput,
+  (val) => {
+    syncTrendToday(val)
+  }
+)
 onActivated(() => { void loadDashboard(true) })
 onBeforeUnmount(() => {
   if (refreshTimer) clearInterval(refreshTimer)
@@ -236,11 +296,15 @@ async function loadDashboard(silent = false) {
     disposeCharts()
   }
   try {
-    const payload = await getDashboardData()
+    const [payload] = await Promise.all([getDashboardData(), appStore.loadWorkshopSummary()])
     const overview = payload.overview ?? {}
     Object.assign(summary, overview)
     teamProgress.value = payload.teamProgress ?? []
     outputTrend.value = payload.outputTrend ?? []
+    const todayOutput = appStore.workshopSummary.todayOutput ?? summary.todayOutput
+    if (todayOutput != null) {
+      syncTrendToday(todayOutput)
+    }
     exceptionList.value = (payload.exceptionList ?? []) as ExceptionItem[]
     deviceList.value = ((payload as { deviceList?: Record<string, unknown>[] }).deviceList ?? []).map((item) => ({
       id: (item.id ?? '') as string | number,
@@ -354,7 +418,7 @@ function renderCharts() {
           return `<div style="font-weight: 500; color: #94a3b8; font-size: 11px; margin-bottom: 4px;">${item.axisValue}</div>
                   <div style="display: flex; align-items: center; gap: 6px;">
                     <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #6366f1;"></span>
-                    <span style="font-weight: 600; color: #fff;">${item.value} <span style="font-weight: 400; font-size: 11px; color: #94a3b8;">件</span></span>
+                    <span style="font-weight: 600; color: #fff;">${item.value} <span style="font-weight: 400; font-size: 11px; color: #94a3b8;">单</span></span>
                   </div>`;
         }
       },
@@ -398,6 +462,17 @@ function renderCharts() {
   }
 }
 function resizeCharts() { teamChart.value?.resize(); trendChart.value?.resize() }
+function syncTrendToday(todayOutput: number) {
+  if (!outputTrend.value.length) return
+  const last = outputTrend.value[outputTrend.value.length - 1]
+  if (last.outputQty === todayOutput) return
+  last.outputQty = todayOutput
+  if (trendChart.value) {
+    trendChart.value.setOption({
+      series: [{ data: outputTrend.value.map((item) => item.outputQty) }]
+    })
+  }
+}
 function normalizeList<T>(value: any): T[] { if (Array.isArray(value)) return value as T[]; if (Array.isArray(value?.records)) return value.records as T[]; if (Array.isArray(value?.list)) return value.list as T[]; if (Array.isArray(value?.items)) return value.items as T[]; if (Array.isArray(value?.data)) return value.data as T[]; return [] }
 function calcPercent(doneValue: any, totalValue: any) { const done = Number(doneValue || 0); const total = Number(totalValue || 0); return total > 0 ? Math.round((done / total) * 100) : 0 }
 function inferTrend(value: string): 'flat' | 'up' | 'down' {
@@ -412,12 +487,85 @@ function pad(value: number) { return String(value).padStart(2, '0') }
 
 <style scoped>
 .view-page { display: flex; flex-direction: column; gap: 16px; }
+.dashboard-metrics-panel {
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #e0e7ff;
+  border-radius: 20px;
+  box-shadow: 0 2px 12px rgba(79, 70, 229, 0.05);
+}
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.dashboard-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  transition: all 0.25s ease;
+  min-height: 88px;
+}
+.dashboard-metric:hover {
+  background: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+.dashboard-metric__label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+.dashboard-metric__value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.dashboard-metric__value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.dashboard-metric__unit {
+  font-size: 13px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+.dashboard-metric__trend {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 2px;
+}
+.dashboard-metric__trend--up { color: #0d9488; }
+.dashboard-metric__trend--down { color: #e11d48; }
 .action-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; background: #fff; border: 1px solid var(--theme-border, #e2e8f0); border-radius: 16px; box-shadow: 0 2px 12px rgba(15, 23, 42, 0.05); }
 .action-bar__meta, .action-bar__buttons { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .action-bar__time { color: var(--theme-text-secondary, #64748b); font-size: 13px; }
 .section-gap { margin-top: 0; }
 .panel-card { border-radius: 16px; margin-bottom: 16px; }
 .panel-card__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 600; }
+.panel-card__more-btn {
+  border-radius: 20px !important;
+  padding: 4px 14px !important;
+  height: 28px !important;
+  border: 1px solid #e2e8f0 !important;
+  background: #fff !important;
+  color: #475569 !important;
+  font-weight: 500 !important;
+  font-size: 13px !important;
+  margin: 0 !important;
+}
+.panel-card__more-btn:hover,
+.panel-card__more-btn:focus {
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+  background: #f8fafc !important;
+}
 .chart-box { height: 320px; }
 .panel-card :deep(.el-card__body) { min-height: 180px; }
 .device-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -431,5 +579,13 @@ function pad(value: number) { return String(value).padStart(2, '0') }
 .panel-table :deep(.el-table__body .cell) {
   text-align: center;
 }
-@media (max-width: 900px) { .action-bar { align-items: flex-start; flex-direction: column; } .chart-box { height: 280px; } .device-kpi-row { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 900px) {
+  .action-bar { align-items: flex-start; flex-direction: column; }
+  .chart-box { height: 280px; }
+  .device-kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .dashboard-metrics { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .dashboard-metrics { grid-template-columns: 1fr; }
+}
 </style>

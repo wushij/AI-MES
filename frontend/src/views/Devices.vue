@@ -35,7 +35,7 @@
       </div>
 
       <!-- 数据列表 -->
-      <el-table v-loading="loading" :data="devices" stripe border :header-cell-style="tableHeaderStyle" class="main-table">
+      <el-table v-loading="loading" :data="pagedDevices" stripe border :header-cell-style="tableHeaderStyle" class="main-table">
         <el-table-column prop="deviceCode" label="设备编号" min-width="110" align="center" />
         <el-table-column prop="deviceName" label="设备名称" min-width="140" align="center" />
         <el-table-column prop="categoryName" label="分类" min-width="100" align="center">
@@ -65,6 +65,15 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="table-pagination">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.size"
+          background
+          layout="total, prev, pager, next"
+          :total="pagination.total"
+        />
+      </div>
     </el-card>
 
     <el-dialog v-model="dialogVisible" :title="dialogMode === 'create' ? '新建设备' : '编辑设备'" width="640px" class="device-form-dialog">
@@ -220,6 +229,7 @@ import {
 } from '@/api/devices'
 import { DEVICE_STATUSES, deviceStatusLabel, deviceStatusTagType } from '@/utils/deviceLabels'
 import DeviceDetail from './DeviceDetail.vue'
+import { confirmDelete } from '@/utils/confirmDelete'
 
 const router = useRouter()
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600', textAlign: 'center' as const }
@@ -245,6 +255,7 @@ const categoryForm = reactive({ categoryName: '', parentId: 0 as number | string
 const categoryEditForm = reactive({ id: 0 as number | string, categoryName: '', parentId: 0 as number | string, sortNo: 0 })
 
 const filters = reactive({ keyword: '', status: '', categoryId: undefined as number | string | undefined })
+const pagination = reactive({ page: 1, size: 10, total: 0 })
 const form = reactive({
   deviceCode: '', deviceName: '', categoryId: undefined as number | string | undefined,
   brand: '', model: '', serialNumber: '', workshop: '', lineName: '', station: '',
@@ -287,6 +298,11 @@ const summaryCards = computed(() => {
   ]
 })
 
+const pagedDevices = computed(() => {
+  const start = (pagination.page - 1) * pagination.size
+  return devices.value.slice(start, start + pagination.size)
+})
+
 async function loadDevices() {
   loading.value = true
   try {
@@ -295,6 +311,10 @@ async function loadDevices() {
       status: filters.status || undefined,
       categoryId: filters.categoryId
     })
+    pagination.total = devices.value.length
+    if ((pagination.page - 1) * pagination.size >= pagination.total && pagination.page > 1) {
+      pagination.page = 1
+    }
   } catch (error) {
     console.error(error)
     ElMessage.error('加载设备失败')
@@ -338,6 +358,7 @@ function resetFilters() {
   filters.keyword = ''
   filters.status = ''
   filters.categoryId = undefined
+  pagination.page = 1
   loadDevices()
 }
 
@@ -398,7 +419,11 @@ async function submitForm() {
 }
 
 async function removeDevice(row: DeviceItem) {
-  await ElMessageBox.confirm(`确认删除设备「${row.deviceName}」？`, '删除设备', { type: 'warning' })
+  const ok = await confirmDelete({
+    title: '删除设备',
+    message: `确认删除设备「${row.deviceName}」？此操作不可恢复。`
+  })
+  if (!ok) return
   deletingId.value = row.id
   try {
     await deleteDevice(row.id)
@@ -469,7 +494,11 @@ async function submitEditCategory() {
 }
 
 async function removeCategory(row: DeviceCategoryItem) {
-  await ElMessageBox.confirm(`确认删除分类「${row.categoryName}」？`, '删除分类', { type: 'warning' })
+  const ok = await confirmDelete({
+    title: '删除分类',
+    message: `确认删除分类「${row.categoryName}」？此操作不可恢复。`
+  })
+  if (!ok) return
   try {
     await deleteDeviceCategory(row.id)
     await loadCategories()
@@ -721,5 +750,11 @@ onMounted(async () => {
 }
 .table-actions :deep(.el-button + .el-button) {
   margin-left: 0 !important;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 12px;
 }
 </style>

@@ -189,6 +189,10 @@
         <div v-if="hasSchedulingInfo" class="scheduling-info-block">
           <div class="scheduling-info-block__title">AI 排产信息</div>
           <div class="scheduling-info-grid">
+            <div v-if="schedulingInfo.teamName" class="scheduling-info-item">
+              <span class="scheduling-info-item__label">建议班组</span>
+              <strong>{{ schedulingInfo.teamName }}</strong>
+            </div>
             <div v-if="schedulingInfo.scheduledStartTime" class="scheduling-info-item">
               <span class="scheduling-info-item__label">建议开工</span>
               <strong>{{ schedulingInfo.scheduledStartTime }}</strong>
@@ -198,7 +202,10 @@
               <strong>{{ schedulingInfo.estimatedHours }} 小时</strong>
             </div>
           </div>
-          <p v-if="schedulingInfo.schedulingReason" class="scheduling-info-reason">{{ schedulingInfo.schedulingReason }}</p>
+          <div v-if="schedulingInfo.schedulingReason" class="scheduling-info-conclusion">
+            <div class="scheduling-info-conclusion__label">排产结论</div>
+            <p class="scheduling-info-reason">{{ schedulingInfo.schedulingReason }}</p>
+          </div>
         </div>
 
         <el-form-item label="备注">
@@ -281,6 +288,10 @@
         <div v-if="hasSchedulingInfo" class="scheduling-info-block scheduling-info-block--detail">
           <div class="scheduling-info-block__title">AI 排产信息</div>
           <div class="scheduling-info-grid">
+            <div v-if="schedulingInfo.teamName" class="scheduling-info-item">
+              <span class="scheduling-info-item__label">建议班组</span>
+              <strong>{{ schedulingInfo.teamName }}</strong>
+            </div>
             <div v-if="schedulingInfo.scheduledStartTime" class="scheduling-info-item">
               <span class="scheduling-info-item__label">建议开工</span>
               <strong>{{ schedulingInfo.scheduledStartTime }}</strong>
@@ -290,7 +301,10 @@
               <strong>{{ schedulingInfo.estimatedHours }} 小时</strong>
             </div>
           </div>
-          <p v-if="schedulingInfo.schedulingReason" class="scheduling-info-reason">{{ schedulingInfo.schedulingReason }}</p>
+          <div v-if="schedulingInfo.schedulingReason" class="scheduling-info-conclusion">
+            <div class="scheduling-info-conclusion__label">排产结论</div>
+            <p class="scheduling-info-reason">{{ schedulingInfo.schedulingReason }}</p>
+          </div>
         </div>
 
         <el-form
@@ -376,14 +390,18 @@ import ProcessRecordTimeline, { type ProcessRecordItem } from '@/components/work
 import { getProcessOperationNames } from '@/api/processRoutes'
 
 import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
 
 import { normalizePriority, priorityLabel } from '@/utils/labels'
+import { confirmDelete } from '@/utils/confirmDelete'
+import { hasAiSchedulingInfo } from '@/utils/schedulingHelpers'
 
 interface TeamOption { id: string | number; name: string }
 
 interface WorkOrderRow { id: string | number; code: string; planCode: string; productName: string; teamName: string; teamId?: string | number; currentProcess: string; progress: number; priority: number; priorityLabel: string; dueDate: string; status: string; overdue: boolean; remark?: string }
 
 const userStore = useUserStore()
+const appStore = useAppStore()
 
 const router = useRouter()
 const route = useRoute()
@@ -502,17 +520,18 @@ function onEditProductChange(payload: { productId?: number | string; productName
 }
 
 const schedulingInfo = reactive({
+  teamName: '',
   scheduledStartTime: '',
   estimatedHours: '',
   schedulingReason: ''
 })
 
 const hasSchedulingInfo = computed(() =>
-  Boolean(
-    schedulingInfo.scheduledStartTime ||
-      schedulingInfo.estimatedHours ||
-      schedulingInfo.schedulingReason
-  )
+  hasAiSchedulingInfo({
+    scheduledStartTime: schedulingInfo.scheduledStartTime,
+    estimatedHours: schedulingInfo.estimatedHours,
+    schedulingReason: schedulingInfo.schedulingReason
+  })
 )
 
 const progressForm = reactive({ progress: 0, currentProcess: '', remark: '' })
@@ -768,18 +787,18 @@ async function openProgressDrawer(row: WorkOrderRow) {
   }
 }
 
-async function submitProgress() { const valid = await progressFormRef.value?.validate().catch(() => false); if (!valid || !currentOrder.value) return; submittingProgress.value = true; try { const api = await import('@/api/workOrders'); await api.updateWorkOrderProgress(currentOrder.value.id, { progress: progressForm.progress, processName: progressForm.currentProcess, remark: progressForm.remark }); ElMessage.success('进度已更新'); progressDrawerVisible.value = false; loadOrders() } catch (error) { console.error(error); ElMessage.error('更新进度失败') } finally { submittingProgress.value = false } }
+async function submitProgress() { const valid = await progressFormRef.value?.validate().catch(() => false); if (!valid || !currentOrder.value) return; submittingProgress.value = true; try { const api = await import('@/api/workOrders'); await api.updateWorkOrderProgress(currentOrder.value.id, { progress: progressForm.progress, processName: progressForm.currentProcess, remark: progressForm.remark }); ElMessage.success('进度已更新'); progressDrawerVisible.value = false; loadOrders(); if (progressForm.progress >= 100) void appStore.loadWorkshopSummary() } catch (error) { console.error(error); ElMessage.error('更新进度失败') } finally { submittingProgress.value = false } }
 
-async function completeOrder(row: WorkOrderRow) { await ElMessageBox.confirm(`确认将工单 ${row.code} 标记为完工？`, '确认完工', { type: 'warning' }); actionLoading.value = `complete-${row.id}`; try { const api = await import('@/api/workOrders'); await api.completeWorkOrder(row.id); ElMessage.success('工单已完工'); loadOrders() } catch (error) { console.error(error); ElMessage.error('完工操作失败') } finally { actionLoading.value = '' } }
+async function completeOrder(row: WorkOrderRow) { await ElMessageBox.confirm(`确认将工单 ${row.code} 标记为完工？`, '确认完工', { type: 'warning' }); actionLoading.value = `complete-${row.id}`; try { const api = await import('@/api/workOrders'); await api.completeWorkOrder(row.id); ElMessage.success('工单已完工'); loadOrders(); void appStore.loadWorkshopSummary() } catch (error) { console.error(error); ElMessage.error('完工操作失败') } finally { actionLoading.value = '' } }
 
 function goToExceptions(row: WorkOrderRow) { router.push({ path: '/exceptions', query: { workOrderId: String(row.id), workOrderCode: row.code } }) }
 
 async function removeOrder(row: WorkOrderRow) {
-  await ElMessageBox.confirm(
-    `确认删除工单「${row.code}」？此操作将永久删除该工单及其关联的工序记录和异常记录，不可恢复！`,
-    '删除工单',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-  )
+  const ok = await confirmDelete({
+    title: '删除工单',
+    message: `确认删除工单「${row.code}」？此操作将永久删除该工单及其关联的工序记录和异常记录，不可恢复！`
+  })
+  if (!ok) return
   actionLoading.value = `delete-${row.id}`
   try {
     const api = await import('@/api/workOrders')
@@ -839,6 +858,7 @@ function formatDeadlineForPicker(value: string) {
 
 function resetSchedulingInfo() {
   Object.assign(schedulingInfo, {
+    teamName: '',
     scheduledStartTime: '',
     estimatedHours: '',
     schedulingReason: ''
@@ -847,6 +867,7 @@ function resetSchedulingInfo() {
 
 function loadSchedulingInfo(detail: Record<string, unknown>) {
   Object.assign(schedulingInfo, {
+    teamName: String(detail.teamName ?? '').trim(),
     scheduledStartTime: formatDeadlineForPicker(String(detail.scheduledStartTime ?? '')),
     estimatedHours: detail.estimatedHours != null && detail.estimatedHours !== '' ? String(detail.estimatedHours) : '',
     schedulingReason: String(detail.schedulingReason ?? '').trim()
@@ -893,15 +914,22 @@ function loadSchedulingInfo(detail: Record<string, unknown>) {
 }
 
 .scheduling-info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 12px 16px;
 }
 
 .scheduling-info-item {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.scheduling-info-item:nth-child(2) {
+  flex: 1.35 1 0;
 }
 
 .scheduling-info-item__label {
@@ -909,11 +937,22 @@ function loadSchedulingInfo(detail: Record<string, unknown>) {
   color: #94a3b8;
 }
 
-.scheduling-info-reason {
-  margin: 10px 0 0;
+.scheduling-info-conclusion {
+  margin-top: 10px;
+}
+
+.scheduling-info-conclusion__label {
+  margin-bottom: 6px;
   font-size: 12px;
-  line-height: 1.6;
+  font-weight: 700;
   color: #64748b;
+}
+
+.scheduling-info-reason {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #475569;
 }
 
 .table-pagination {

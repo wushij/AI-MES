@@ -285,6 +285,7 @@ import { TOKEN_STORAGE_KEY } from '@/api/request'
 import { getDeviceOptions } from '@/api/devices'
 import { getInspectionPlansByProcess, submitInspectionRecords, type InspectionPlan } from '@/api/quality'
 import { normalizePriority, priorityLabel } from '@/utils/labels'
+import { useAppStore } from '@/stores/app'
 
 type BoardStatus = 'pendingClaim' | 'inProgress' | 'completedToday'
 
@@ -305,6 +306,7 @@ interface TaskRow {
 }
 
 const router = useRouter()
+const appStore = useAppStore()
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600' }
 
 const loading = ref(false)
@@ -589,6 +591,9 @@ async function submitProgress() {
     ElMessage.success('进度已更新')
     progressDialogVisible.value = false
     await loadBoard()
+    if (progressForm.progress >= 100) {
+      void appStore.loadWorkshopSummary()
+    }
   } catch (error) {
     console.error(error)
     ElMessage.error('更新进度失败')

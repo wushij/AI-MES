@@ -338,6 +338,7 @@ import { Box, Plus, Minus, EditPen } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import { normalizeList } from '@/utils/normalizeList'
+import { confirmDelete } from '@/utils/confirmDelete'
 import type { MaterialTransaction } from '@/api/materials'
 
 interface MaterialRow { id: string | number; code: string; name: string; unit: string; stockQty: number; safetyStock: number; gap: number; status: string }
@@ -615,15 +616,11 @@ async function submitStock() {
 }
 
 async function removeMaterial(row: MaterialRow) {
-  try {
-    await ElMessageBox.confirm(
-      `确认删除物料「${row.name}」（${row.code}）？此操作不可恢复。`,
-      '删除物料',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-    )
-  } catch {
-    return
-  }
+  const ok = await confirmDelete({
+    title: '删除物料',
+    message: `确认删除物料「${row.name}」（${row.code}）？此操作不可恢复。`
+  })
+  if (!ok) return
   deleteLoading.value = row.id
   try {
     const { deleteMaterial } = await import('@/api/materials')

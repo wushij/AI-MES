@@ -36,7 +36,7 @@
         </el-table-column>
         <el-table-column label="操作" width="90">
           <template #default="{ $index }">
-            <el-button link type="danger" @click="form.operations.splice($index, 1)">删除</el-button>
+            <el-button link type="danger" @click="removeOperation($index)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -54,6 +54,7 @@ import { ElMessage } from 'element-plus'
 import AdminSubNav from '@/components/admin/AdminSubNav.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { getDefaultProcessRoute, updateDefaultProcessRoute, type ProcessOperation } from '@/api/processRoutes'
+import { confirmDelete } from '@/utils/confirmDelete'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -69,6 +70,17 @@ function addOperation() {
     operationName: '',
     standardHours: 1
   })
+}
+
+async function removeOperation(index: number) {
+  const row = form.operations[index]
+  const label = row?.operationName?.trim() || `第 ${index + 1} 道工序`
+  const ok = await confirmDelete({
+    title: '删除工序',
+    message: `确认删除工序「${label}」？删除后需点击「保存路线」才会生效。`
+  })
+  if (!ok) return
+  form.operations.splice(index, 1)
 }
 
 async function loadRoute() {

@@ -225,6 +225,15 @@ public class DeviceService {
         return summary;
     }
 
+    public List<Map<String, Object>> alertDevices() {
+        return devDeviceMapper.selectList(new LambdaQueryWrapper<DevDevice>()
+                        .in(DevDevice::getStatus, List.of("fault", "repairing", "maintenance", "paused", "stopped"))
+                        .last("ORDER BY FIELD(status, 'fault', 'repairing', 'maintenance', 'paused', 'stopped'), device_code ASC limit 5"))
+                .stream()
+                .map(this::toBriefView)
+                .toList();
+    }
+
     public List<Map<String, Object>> schedulingLoads() {
         return devDeviceMapper.selectList(new LambdaQueryWrapper<DevDevice>()
                         .ne(DevDevice::getStatus, "scrapped")

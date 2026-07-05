@@ -202,6 +202,20 @@ export function buildApplyDiffRows(
   })
 }
 
+export function hasAiSchedulingInfo(detail?: {
+  scheduledStartTime?: unknown
+  estimatedHours?: unknown
+  schedulingReason?: unknown
+  schedulingRank?: unknown
+} | null) {
+  if (!detail) return false
+  return Boolean(
+    String(detail.schedulingReason ?? '').trim() ||
+      detail.scheduledStartTime ||
+      (detail.schedulingRank != null && detail.schedulingRank !== '')
+  )
+}
+
 export function statusLabel(status?: string) {
   const map: Record<string, string> = {
     pending: '待派工',

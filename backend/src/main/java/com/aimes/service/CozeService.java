@@ -400,7 +400,7 @@ public class CozeService {
         } catch (Exception ex) {
             return mockSchedulingResult(workOrders, warningMaterials, constraints, planDate,
                     "Coze 工作流调用失败：" + ex.getMessage()
-                            + "。请确认工作流「开始节点」入参名为 plan_date、work_orders_json、material_status、constraints_json、current_time");
+                            + "。请确认工作流「开始节点」入参名为 plan_date、work_orders_json、material_status、constraints_json、teams_json、devices_json、current_time");
         }
         return mockSchedulingResult(workOrders, warningMaterials, constraints, planDate,
                 "Coze 未启用或未配置，当前展示演示排产结果");
@@ -648,6 +648,11 @@ public class CozeService {
             parameters.put("material_status", "[]");
         }
         parameters.put("constraints_json", objectMapper.writeValueAsString(constraints));
+        if (Boolean.TRUE.equals(constraints.get("teamHours"))) {
+            parameters.put("teams_json", objectMapper.writeValueAsString(buildSchedulingTeamLoads(workOrders)));
+        } else {
+            parameters.put("teams_json", "[]");
+        }
         if (Boolean.TRUE.equals(constraints.get("deviceLoad"))) {
             parameters.put("devices_json", objectMapper.writeValueAsString(deviceService.schedulingLoads()));
         } else {
@@ -703,7 +708,7 @@ public class CozeService {
             return parsed;
         }
         Map<String, Object> result = applySchedulingConstraintsToResult(parsed, constraints, planDate);
-        normalizeDispatchTeams(result, workOrders);
+        optimizeDispatchTeamsByLoad(result, workOrders, constraints);
         normalizeDispatchStartTimes(result, planDate, Boolean.TRUE.equals(constraints.get("teamHours")));
         result.put("summary", buildSchedulingSummary(result, workOrders, constraints, planDate));
         return result;
@@ -944,7 +949,46 @@ public class CozeService {
         return summary.toString();
     }
 
-    private void normalizeDispatchTeams(Map<String, Object> result, List<ProdWorkOrder> workOrders) {
+    private void optimizeDispatchTeamsByLoad(
+            Map<String, Object> result,
+            List<ProdWorkOrder> workOrders,
+            Map<String, Boolean> constraints) {
+        if (!Boolean.TRUE.equals(constraints.get("teamHours"))) {
+            annotateCurrentTeams(result, workOrders);
+            return;
+        }
+        List<Map<String, Object>> teamLoads = buildSchedulingTeamLoads(workOrders);
+        if (teamLoads.isEmpty()) {
+            return;
+        }
+        Map<String, Integer> proposedHoursByTeam = new LinkedHashMap<>();
+        for (Map<String, Object> team : teamLoads) {
+            proposedHoursByTeam.put(String.valueOf(team.get("teamName")), 0);
+        }
+        Map<String, String> assignedTeams = resolveAssignedTeamNames(workOrders);
+
+        for (String dispatchKey : List.of("dispatches", "dispatchSuggestions")) {
+            if (!result.containsKey(dispatchKey)) {
+                continue;
+            }
+            List<Map<String, Object>> dispatches = copyMapList(result.get(dispatchKey));
+            for (Map<String, Object> row : dispatches) {
+                String workOrderCode = readDispatchWorkOrderCode(row);
+                if (StringUtils.hasText(workOrderCode) && assignedTeams.containsKey(workOrderCode)) {
+                    row.put("currentTeam", assignedTeams.get(workOrderCode));
+                }
+                int hours = parseDispatchHours(row.get("hours"));
+                String teamName = pickLeastLoadedTeamName(teamLoads, proposedHoursByTeam);
+                row.put("teamName", teamName);
+                row.put("team", teamName);
+                row.put("suggestedTeam", teamName);
+                proposedHoursByTeam.merge(teamName, hours, Integer::sum);
+            }
+            result.put(dispatchKey, dispatches);
+        }
+    }
+
+    private void annotateCurrentTeams(Map<String, Object> result, List<ProdWorkOrder> workOrders) {
         Map<String, String> assignedTeams = resolveAssignedTeamNames(workOrders);
         if (assignedTeams.isEmpty()) {
             return;
@@ -957,15 +1001,31 @@ public class CozeService {
             for (Map<String, Object> row : dispatches) {
                 String workOrderCode = readDispatchWorkOrderCode(row);
                 String assignedTeam = assignedTeams.get(workOrderCode);
-                if (!StringUtils.hasText(assignedTeam)) {
-                    continue;
+                if (StringUtils.hasText(assignedTeam)) {
+                    row.put("currentTeam", assignedTeam);
                 }
-                row.put("teamName", assignedTeam);
-                row.put("team", assignedTeam);
-                row.put("suggestedTeam", assignedTeam);
             }
             result.put(dispatchKey, dispatches);
         }
+    }
+
+    private String pickLeastLoadedTeamName(
+            List<Map<String, Object>> teamLoads,
+            Map<String, Integer> proposedHoursByTeam) {
+        Map<String, Object> best = null;
+        int bestScore = Integer.MAX_VALUE;
+        for (Map<String, Object> team : teamLoads) {
+            String name = String.valueOf(team.get("teamName"));
+            int loadRate = team.get("loadRate") instanceof Number number ? number.intValue() : 0;
+            int activeTasks = team.get("activeTaskCount") instanceof Number number ? number.intValue() : 0;
+            int proposed = proposedHoursByTeam.getOrDefault(name, 0);
+            int score = loadRate * 100 + proposed * 10 + activeTasks;
+            if (score < bestScore) {
+                bestScore = score;
+                best = team;
+            }
+        }
+        return best == null ? "待定" : String.valueOf(best.get("teamName"));
     }
 
     private String readDispatchWorkOrderCode(Map<String, Object> row) {
@@ -2088,7 +2148,6 @@ public class CozeService {
         List<Map<String, Object>> dispatch = new ArrayList<>();
         for (int i = 0; i < workOrders.size(); i++) {
             ProdWorkOrder order = workOrders.get(i);
-            ProdTeam team = order.getTeamId() == null ? null : prodTeamMapper.selectById(order.getTeamId());
             Map<String, Object> priorityRow = new LinkedHashMap<>();
             priorityRow.put("workOrderCode", order.getOrderNo());
             priorityRow.put("rank", i + 1);
@@ -2098,7 +2157,7 @@ public class CozeService {
 
             Map<String, Object> dispatchRow = new LinkedHashMap<>();
             dispatchRow.put("workOrderCode", order.getOrderNo());
-            dispatchRow.put("teamName", team == null ? "待定" : team.getTeamName());
+            dispatchRow.put("teamName", "待定");
             dispatchRow.put("startTime", formatStartTime(computeEarliestDispatchStart(planDate, i)));
             dispatchRow.put("hours", teamEnabled ? String.valueOf(4 + i) : "待定");
             dispatch.add(dispatchRow);

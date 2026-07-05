@@ -25,7 +25,8 @@ export async function getDashboardData() {
       deviceTotalCount: Number(stats.deviceTotalCount ?? 0),
       deviceRunningCount: Number(stats.deviceRunningCount ?? 0),
       deviceFaultCount: Number(stats.deviceFaultCount ?? 0),
-      deviceTodayAlertCount: Number(stats.deviceTodayAlertCount ?? 0)
+      deviceTodayAlertCount: Number(stats.deviceTodayAlertCount ?? 0),
+      todayOutput: Number(stats.todayOutput ?? 0)
     },
     teamProgress: progress.map((item) => ({
       teamName: String(item.teamName ?? '--'),
@@ -33,7 +34,7 @@ export async function getDashboardData() {
       totalQty: Number(item.totalCount ?? 0),
       progress: Number(item.avgProgress ?? 0)
     })),
-    outputTrend: (stats.outputTrend as { date: string; outputQty: number }[]) || buildTrend(),
+    outputTrend: normalizeOutputTrend(stats.outputTrend, stats.todayOutput),
     exceptionList: (alerts.exceptions ?? []).map((item) => ({
       id: item.id,
       code: item.eventNo,
@@ -69,7 +70,23 @@ export function getWorkshopSummary() {
     .then((res) => res.data)
 }
 
-function buildTrend() {
+function normalizeOutputTrend(raw: unknown, todayOutput: unknown) {
+  const trend = Array.isArray(raw)
+    ? raw.map((item) => {
+        const row = item as { date?: string; outputQty?: number }
+        return {
+          date: String(row.date ?? ''),
+          outputQty: Number(row.outputQty ?? 0)
+        }
+      })
+    : buildEmptyTrend()
+  if (trend.length && todayOutput != null && todayOutput !== '') {
+    trend[trend.length - 1].outputQty = Number(todayOutput)
+  }
+  return trend
+}
+
+function buildEmptyTrend() {
   const days: { date: string; outputQty: number }[] = []
   const now = new Date()
   for (let i = 6; i >= 0; i -= 1) {
@@ -77,7 +94,7 @@ function buildTrend() {
     d.setDate(now.getDate() - i)
     days.push({
       date: `${d.getMonth() + 1}/${d.getDate()}`,
-      outputQty: Math.floor(Math.random() * 30) + 40
+      outputQty: 0
     })
   }
   return days

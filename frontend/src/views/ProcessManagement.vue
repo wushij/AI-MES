@@ -22,7 +22,7 @@
       </div>
 
       <!-- 表格数据 -->
-      <el-table v-loading="loading" :data="filteredRoutes" stripe border :header-cell-style="tableHeaderStyle" class="main-table">
+      <el-table v-loading="loading" :data="pagedRoutes" stripe border :header-cell-style="tableHeaderStyle" class="main-table">
         <el-table-column prop="routeCode" label="工艺编号" min-width="120" align="center" />
         <el-table-column prop="routeName" label="工艺名称" min-width="140" align="center" />
         <el-table-column prop="productName" label="适用产品" min-width="120" align="center">
@@ -46,20 +46,22 @@
             <div class="table-actions">
               <el-button size="small" class="action-btn-pill" @click="openEdit(row)">编辑</el-button>
               <el-button size="small" class="action-btn-pill" @click="openDetailDrawer(row)">工序配置</el-button>
-              <el-dropdown trigger="click" @command="(cmd: any) => handleCommand(cmd, row)">
+              <el-dropdown trigger="click" popper-class="route-action-dropdown" @command="(cmd: any) => handleCommand(cmd, row)">
                 <el-button size="small" class="action-btn-pill more-btn">
                   更多 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
+                    <el-dropdown-item v-if="canSubmitRoute(row)" command="submit">提交审批</el-dropdown-item>
+                    <el-dropdown-item v-if="canPublishRoute(row)" command="publish">直接发布</el-dropdown-item>
+                    <el-dropdown-item v-if="canApproveRoute(row)" command="approve">审批通过</el-dropdown-item>
+                    <el-dropdown-item v-if="canApproveRoute(row)" command="reject" class="route-action-dropdown__item--danger">驳回</el-dropdown-item>
                     <el-dropdown-item command="copy">复制</el-dropdown-item>
                     <el-dropdown-item v-if="!row.isDefault && row.status === 'published'" command="setDefault">设默认</el-dropdown-item>
                     <el-dropdown-item v-if="row.status === 'published' || row.status === 'disabled'" command="toggle">
                       {{ row.enabled === false ? '启用' : '停用' }}
                     </el-dropdown-item>
-                    <el-dropdown-item v-if="!row.isDefault" command="delete" divided>
-                      <span style="color: var(--el-color-danger)">删除</span>
-                    </el-dropdown-item>
+                    <el-dropdown-item v-if="!row.isDefault" command="delete" divided class="route-action-dropdown__item--danger">删除</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -67,6 +69,15 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="table-pagination">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.size"
+          background
+          layout="total, prev, pager, next"
+          :total="pagination.total"
+        />
+      </div>
     </el-card>
 
     <!-- 工序配置与工艺设计弹窗（同页面弹窗展示） -->
@@ -110,20 +121,24 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import ProductSelect from '@/components/common/ProductSelect.vue'
 import ProcessRouteDetail from './ProcessRouteDetail.vue'
+import { confirmDelete } from '@/utils/confirmDelete'
+import { useUserStore } from '@/stores/user'
 import {
-  copyProcessRoute, deleteProcessRoute, getProcessRoutes, routeStatusLabel, routeStatusType,
+  approveProcessRoute, buildOperationPayload, copyProcessRoute, deleteProcessRoute, getProcessRoute,
+  getProcessRoutes, rejectProcessRoute, routeStatusLabel, routeStatusType, submitProcessRoute,
   setDefaultProcessRoute, toggleProcessRoute, type ProcessRoute,
   createProcessRoute, updateProcessRoute
 } from '@/api/processRoutes'
 
 const router = useRouter()
+const userStore = useUserStore()
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600', textAlign: 'center' as const }
 const loading = ref(false)
 const routes = ref<ProcessRoute[]>([])
@@ -142,6 +157,8 @@ const filters = ref({
   keyword: ''
 })
 
+const pagination = reactive({ page: 1, size: 10, total: 0 })
+
 const filteredRoutes = computed(() => {
   const kw = filters.value.keyword.trim().toLowerCase()
   if (!kw) return routes.value
@@ -153,8 +170,29 @@ const filteredRoutes = computed(() => {
   )
 })
 
+const pagedRoutes = computed(() => {
+  const start = (pagination.page - 1) * pagination.size
+  return filteredRoutes.value.slice(start, start + pagination.size)
+})
+
+watch(
+  () => filteredRoutes.value.length,
+  (count) => {
+    pagination.total = count
+    if ((pagination.page - 1) * pagination.size >= count && pagination.page > 1) {
+      pagination.page = 1
+    }
+  },
+  { immediate: true }
+)
+
+watch(() => filters.value.keyword, () => {
+  pagination.page = 1
+})
+
 function resetFilters() {
   filters.value.keyword = ''
+  pagination.page = 1
 }
 
 // 弹窗表单状态
@@ -183,6 +221,18 @@ const rules = {
   ]
 }
 
+function canSubmitRoute(row: ProcessRoute) {
+  return row.status === 'draft' || row.status === 'rejected'
+}
+
+function canPublishRoute(row: ProcessRoute) {
+  return canSubmitRoute(row) && (userStore.fullAccess || userStore.canAccessPermission('工艺审批'))
+}
+
+function canApproveRoute(row: ProcessRoute) {
+  return row.status === 'pending_approval' && (userStore.fullAccess || userStore.canAccessPermission('工艺审批'))
+}
+
 async function loadRoutes() {
   loading.value = true
   try {
@@ -198,6 +248,14 @@ async function loadRoutes() {
 function handleCommand(command: string, row: ProcessRoute) {
   if (command === 'copy') {
     handleCopy(row)
+  } else if (command === 'submit') {
+    void handleSubmitRoute(row)
+  } else if (command === 'publish') {
+    void handlePublishRoute(row)
+  } else if (command === 'approve') {
+    void handleApproveRoute(row)
+  } else if (command === 'reject') {
+    void handleRejectRoute(row)
   } else if (command === 'setDefault') {
     handleSetDefault(row)
   } else if (command === 'toggle') {
@@ -288,6 +346,76 @@ async function handleCopy(row: ProcessRoute) {
   }
 }
 
+async function handleSubmitRoute(row: ProcessRoute) {
+  try {
+    await ElMessageBox.confirm(`确认提交工艺「${row.routeName}」审批？`, '提交审批', { type: 'warning' })
+    await submitProcessRoute(row.id)
+    ElMessage.success('已提交审批')
+    await loadRoutes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error(error)
+      ElMessage.error('提交失败')
+    }
+  }
+}
+
+async function handlePublishRoute(row: ProcessRoute) {
+  try {
+    await ElMessageBox.confirm(`确认直接发布工艺「${row.routeName}」？`, '直接发布', { type: 'warning' })
+    const detail = await getProcessRoute(row.id)
+    await updateProcessRoute(row.id, {
+      routeName: detail.routeName,
+      productId: detail.productId,
+      productName: detail.productName,
+      remark: detail.remark,
+      saveMode: 'publish',
+      operations: buildOperationPayload(detail.operations)
+    })
+    ElMessage.success('工艺已发布')
+    await loadRoutes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error(error)
+      ElMessage.error('发布失败')
+    }
+  }
+}
+
+async function handleApproveRoute(row: ProcessRoute) {
+  try {
+    await ElMessageBox.confirm(`确认审批通过工艺「${row.routeName}」？`, '审批通过', { type: 'warning' })
+    await approveProcessRoute(row.id)
+    ElMessage.success('审批通过，工艺已发布')
+    await loadRoutes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error(error)
+      ElMessage.error('审批失败')
+    }
+  }
+}
+
+async function handleRejectRoute(row: ProcessRoute) {
+  try {
+    const { value } = await ElMessageBox.prompt('请填写驳回原因', '驳回工艺', {
+      confirmButtonText: '确认驳回',
+      cancelButtonText: '取消',
+      inputPlaceholder: '请输入驳回原因',
+      inputValidator: (val) => (val?.trim() ? true : '请填写驳回原因'),
+      inputType: 'textarea'
+    })
+    await rejectProcessRoute(row.id, value.trim())
+    ElMessage.success('已驳回')
+    await loadRoutes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error(error)
+      ElMessage.error('驳回失败')
+    }
+  }
+}
+
 async function handleSetDefault(row: ProcessRoute) {
   try {
     await setDefaultProcessRoute(row.id)
@@ -311,7 +439,11 @@ async function handleToggle(row: ProcessRoute) {
 }
 
 async function handleDelete(row: ProcessRoute) {
-  await ElMessageBox.confirm(`确认删除工艺「${row.routeName}」？`, '删除工艺', { type: 'warning' })
+  const ok = await confirmDelete({
+    title: '删除工艺',
+    message: `确认删除工艺「${row.routeName}」？此操作不可恢复。`
+  })
+  if (!ok) return
   try {
     await deleteProcessRoute(row.id)
     ElMessage.success('工艺已删除')
@@ -472,5 +604,76 @@ onMounted(loadRoutes)
 }
 .main-table :deep(.el-table__body .cell) {
   text-align: center;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+</style>
+
+<style>
+/* 下拉菜单挂载到 body，需全局样式 */
+.route-action-dropdown.el-popper {
+  border-radius: 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1) !important;
+  padding: 6px !important;
+  min-width: 112px;
+}
+
+.route-action-dropdown .el-popper__arrow::before {
+  border-color: #e2e8f0 !important;
+}
+
+.route-action-dropdown .el-dropdown-menu {
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.route-action-dropdown .el-dropdown-menu__item {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 7px 14px !important;
+  margin: 1px 0 !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: #475569 !important;
+  line-height: 1.4 !important;
+  text-align: center !important;
+}
+
+.route-action-dropdown .el-dropdown-menu__item:not(.is-disabled):hover,
+.route-action-dropdown .el-dropdown-menu__item:not(.is-disabled):focus {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+.route-action-dropdown .route-action-dropdown__item--danger {
+  color: #ef4444 !important;
+}
+
+.route-action-dropdown .route-action-dropdown__item--danger:not(.is-disabled):hover,
+.route-action-dropdown .route-action-dropdown__item--danger:not(.is-disabled):focus {
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+}
+
+.route-action-dropdown .el-dropdown-menu__item--divided {
+  margin-top: 5px !important;
+  border-top: none !important;
+}
+
+.route-action-dropdown .el-dropdown-menu__item--divided::before {
+  display: block;
+  content: '';
+  height: 1px;
+  background: #e2e8f0;
+  margin: -3px 6px 5px;
 }
 </style>

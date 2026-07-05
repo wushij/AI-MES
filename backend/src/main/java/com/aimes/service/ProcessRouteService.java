@@ -285,7 +285,12 @@ public class ProcessRouteService {
         request.setSaveMode("draft");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> ops = (List<Map<String, Object>>) source.get("operations");
-        request.setOperations(ops.stream().map(this::mapOperationItem).toList());
+        // 复制时必须清空原工序 ID，否则 createRoute 会误当作更新并校验 routingId 导致「工序不存在」
+        request.setOperations(ops.stream().map(op -> {
+            ProcessOperationItem item = mapOperationItem(op);
+            item.setId(null);
+            return item;
+        }).toList());
         Map<String, Object> created = createRoute(request);
         Long newRoutingId = ((Number) created.get("id")).longValue();
         Map<Integer, Long> newOpBySeq = listOperations(newRoutingId).stream()

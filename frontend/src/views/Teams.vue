@@ -184,6 +184,7 @@ import Forbidden from './Forbidden.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import { createTeam, deleteTeam, getTeamDetail, getTeams, updateTeam } from '@/api/teams'
+import { confirmDelete } from '@/utils/confirmDelete'
 import { useUserStore } from '@/stores/user'
 import { roleLabel } from '@/utils/labels'
 
@@ -378,11 +379,11 @@ async function submitForm() {
 }
 
 async function removeTeam(row: TeamRow) {
-  await ElMessageBox.confirm(
-    `确认删除班组「${row.name}」？若班组下仍有成员或关联工单，将无法删除。`,
-    '删除班组',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-  )
+  const ok = await confirmDelete({
+    title: '删除班组',
+    message: `确认删除班组「${row.name}」？若班组下仍有成员或关联工单，将无法删除。`
+  })
+  if (!ok) return
   actionLoading.value = `delete-${row.id}`
   try {
     await deleteTeam(row.id)

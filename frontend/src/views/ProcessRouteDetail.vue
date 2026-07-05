@@ -154,7 +154,7 @@
         <el-table-column label="单位" width="90" align="center"><template #default="{ row }"><el-input v-model="row.unit" /></template></el-table-column>
         <el-table-column label="操作" width="95" align="center">
           <template #default="{ $index }">
-            <el-button size="small" class="op-pill-btn btn-delete" @click="activeOperation?.parameters?.splice($index, 1)">删除</el-button>
+            <el-button size="small" class="op-pill-btn btn-delete" @click="removeParameter($index)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -209,7 +209,7 @@
         </el-table-column>
         <el-table-column label="操作" width="95" align="center">
           <template #default="{ $index }">
-            <el-button size="small" class="op-pill-btn btn-delete" @click="materialForm.rows.splice($index, 1)">删除</el-button>
+            <el-button size="small" class="op-pill-btn btn-delete" @click="removeMaterialRow($index)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -268,6 +268,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadRequestOptions } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { confirmDelete } from '@/utils/confirmDelete'
 import { getDeviceCategories, getDeviceOptions } from '@/api/devices'
 import { getMaterialOptions } from '@/api/materials'
 import { useUserStore } from '@/stores/user'
@@ -445,17 +446,36 @@ async function removeOperation(row: ProcessOperation, index: number) {
   if (sopCount) bindParts.push(`${sopCount} 个 SOP`)
   const bindHint = bindParts.length ? `关联的 ${bindParts.join('、')} 将一并移除。` : ''
 
-  try {
-    await ElMessageBox.confirm(
-      `确认删除工序「${label}」？${bindHint ? `\n${bindHint}` : ''}\n删除后请点击「保存草稿」或「保存并发布」生效。`,
-      '删除工序',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', distinguishCancelAndClose: true }
-    )
-    form.operations.splice(index, 1)
-    ElMessage.success('工序已移除')
-  } catch {
-    // 用户取消
-  }
+  const ok = await confirmDelete({
+    title: '删除工序',
+    message: `确认删除工序「${label}」？${bindHint ? `\n${bindHint}` : ''}\n删除后请点击「保存草稿」或「保存并发布」生效。`
+  })
+  if (!ok) return
+  form.operations.splice(index, 1)
+  ElMessage.success('工序已移除')
+}
+
+async function removeParameter(index: number) {
+  const param = activeOperation.value?.parameters?.[index]
+  const label = param?.paramName?.trim() || `第 ${index + 1} 个参数`
+  const ok = await confirmDelete({
+    title: '删除参数',
+    message: `确认删除参数「${label}」？`
+  })
+  if (!ok) return
+  activeOperation.value?.parameters?.splice(index, 1)
+}
+
+async function removeMaterialRow(index: number) {
+  const row = materialForm.rows[index]
+  const material = materialOptions.value.find((m) => String(m.id) === String(row?.materialId))
+  const label = material ? `${material.materialName} (${material.materialCode})` : `第 ${index + 1} 行`
+  const ok = await confirmDelete({
+    title: '删除物料',
+    message: `确认删除物料「${label}」？`
+  })
+  if (!ok) return
+  materialForm.rows.splice(index, 1)
 }
 
 function addOperation() {
@@ -691,7 +711,11 @@ async function handleSopUpload(options: UploadRequestOptions) {
 }
 
 async function removeSop(row: ProcessSop) {
-  await ElMessageBox.confirm(`确认删除 SOP「${row.fileName}」？`, '删除确认', { type: 'warning' })
+  const ok = await confirmDelete({
+    title: '删除 SOP',
+    message: `确认删除 SOP「${row.fileName}」？此操作不可恢复。`
+  })
+  if (!ok) return
   await deleteOperationSop(row.id)
   if (activeOperation.value?.sops) {
     activeOperation.value.sops = activeOperation.value.sops.filter((s) => s.id !== row.id)

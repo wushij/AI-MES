@@ -384,6 +384,7 @@ import { getDeviceOptions } from '@/api/devices'
 import DeviceDetail from './DeviceDetail.vue'
 
 import { normalizeList } from '@/utils/normalizeList'
+import { confirmDelete } from '@/utils/confirmDelete'
 
 interface WorkOrderOption { id: string | number; code: string }
 
@@ -631,19 +632,12 @@ function resetFilters() {
 }
 
 async function removeException(row: ExceptionRow) {
-  try {
-    await ElMessageBox.confirm(
-      `确认删除异常记录 ${row.code}？删除后不可恢复。${row.status !== 'closed' ? '若该工单无其他未处理异常，将自动恢复工单状态。' : ''}`,
-      '删除异常记录',
-      {
-        type: 'warning',
-        confirmButtonText: '删除',
-        cancelButtonText: '取消'
-      }
-    )
-  } catch {
-    return
-  }
+  const extraHint = row.status !== 'closed' ? '若该工单无其他未处理异常，将自动恢复工单状态。' : ''
+  const ok = await confirmDelete({
+    title: '删除异常记录',
+    message: `确认删除异常记录「${row.code}」？删除后不可恢复。${extraHint}`
+  })
+  if (!ok) return
 
   deleteLoading.value = row.id
   try {

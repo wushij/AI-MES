@@ -157,13 +157,21 @@
         <strong>{{ releasePreview.splitQty }}</strong> 件拆分，将生成
         <strong>{{ releasePreview.workOrderCount }}</strong> 张工单：
       </p>
-      <el-table v-if="releasePreview" :data="releasePreview.workOrders" border size="small" stripe>
+      <el-table
+        v-if="releasePreview"
+        :data="releasePreview.workOrders"
+        border
+        size="small"
+        stripe
+        class="preview-table"
+        :header-cell-style="tableHeaderStyle"
+      >
         <el-table-column prop="batchNo" label="批次" width="70" align="center" />
-        <el-table-column prop="productName" label="产品" min-width="140" />
+        <el-table-column prop="productName" label="产品" min-width="140" align="center" />
         <el-table-column prop="quantity" label="数量" width="90" align="center">
           <template #default="{ row }">{{ row.quantity }} 件</template>
         </el-table-column>
-        <el-table-column prop="deadline" label="交期" min-width="150" />
+        <el-table-column prop="deadline" label="交期" min-width="150" align="center" />
       </el-table>
       <template #footer>
         <el-button @click="releasePreviewVisible = false">取消</el-button>
@@ -199,6 +207,7 @@ import StatusTag from '@/components/common/StatusTag.vue'
 import ProductSelect from '@/components/common/ProductSelect.vue'
 
 import { useUserStore } from '@/stores/user'
+import { confirmDelete } from '@/utils/confirmDelete'
 
 interface PlanRow { id: string | number; code: string; productName: string; quantity: number; planDate: string; workOrderCount: number; status: string; creatorName: string; remark?: string }
 
@@ -338,7 +347,25 @@ async function confirmRelease() {
   }
 }
 
-async function removePlan(row: PlanRow) { await ElMessageBox.confirm(`确认删除计划 ${row.code}？`, '删除计划', { type: 'warning' }); actionLoading.value = `delete-${row.id}`; try { const api = await import('@/api/plans'); await api.deletePlan(row.id); ElMessage.success('计划已删除'); loadPlans() } catch (error) { console.error(error); ElMessage.error('删除计划失败') } finally { actionLoading.value = '' } }
+async function removePlan(row: PlanRow) {
+  const ok = await confirmDelete({
+    title: '删除计划',
+    message: `确认删除计划「${row.code}」？此操作不可恢复。`
+  })
+  if (!ok) return
+  actionLoading.value = `delete-${row.id}`
+  try {
+    const api = await import('@/api/plans')
+    await api.deletePlan(row.id)
+    ElMessage.success('计划已删除')
+    loadPlans()
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('删除计划失败')
+  } finally {
+    actionLoading.value = ''
+  }
+}
 
 function resetFilters() { filters.keyword = ''; filters.status = ''; filters.dateRange = []; pagination.page = 1; loadPlans() }
 
@@ -570,6 +597,11 @@ function currentDate() { const now = new Date(); return `${now.getFullYear()}-${
 .btn-submit:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(79, 70, 229, 0.3) !important;
+}
+
+.preview-table :deep(.el-table__header .cell),
+.preview-table :deep(.el-table__body .cell) {
+  text-align: center;
 }
 </style>
 

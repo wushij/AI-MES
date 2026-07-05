@@ -23,7 +23,7 @@
           <el-descriptions-item label="交期">{{ formatDate(detail.deadline) }}</el-descriptions-item>
           <el-descriptions-item v-if="hasSchedulingInfo" label="建议开工">{{ formatDate(detail.scheduledStartTime) }}</el-descriptions-item>
           <el-descriptions-item v-if="hasSchedulingInfo" label="预计工时">{{ formatEstimatedHours(detail.estimatedHours) }}</el-descriptions-item>
-          <el-descriptions-item v-if="hasSchedulingInfo" label="排产优先级">{{ formatSchedulingRank(detail.schedulingRank) }}</el-descriptions-item>
+          <el-descriptions-item v-if="detail.schedulingReason" label="排产结论" :span="2">{{ detail.schedulingReason }}</el-descriptions-item>
           <el-descriptions-item v-if="detail.remark" label="备注" :span="2">{{ detail.remark }}</el-descriptions-item>
         </el-descriptions>
       </el-card>
@@ -74,6 +74,7 @@ import StatusTag from '@/components/common/StatusTag.vue'
 import ProcessRecordTimeline, { type ProcessRecordItem } from '@/components/workorder/ProcessRecordTimeline.vue'
 import { getWorkOrderDetail } from '@/api/workOrders'
 import { exceptionTypeLabel } from '@/utils/labels'
+import { hasAiSchedulingInfo } from '@/utils/schedulingHelpers'
 
 interface BomPreviewRow {
   materialCode?: string
@@ -100,11 +101,7 @@ const exceptions = computed(() =>
   (detail.value?.exceptions as Array<Record<string, unknown>> | undefined) ?? []
 )
 
-const hasSchedulingInfo = computed(() => {
-  const d = detail.value
-  if (!d) return false
-  return Boolean(d.scheduledStartTime || d.estimatedHours != null || d.schedulingRank != null)
-})
+const hasSchedulingInfo = computed(() => hasAiSchedulingInfo(detail.value))
 
 function formatDate(value: unknown) {
   if (!value) return '--'

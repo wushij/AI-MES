@@ -200,6 +200,11 @@ export function applySchedulingSuggestions(payload: {
     priorityLabel?: string
     reason?: string
   }>
+  bottlenecks?: Array<{
+    processName?: string
+    loadRate?: number
+    suggestion?: string
+  }>
   dispatches: Array<{
     workOrderCode?: string
     teamName?: string

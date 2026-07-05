@@ -189,6 +189,7 @@ import { getChatQuickQuestions } from '@/utils/chatQuickQuestions'
 import type { ChatSession } from '@/stores/aiChat'
 import { useAiChatStore } from '@/stores/aiChat'
 import { useUserStore } from '@/stores/user'
+import { confirmDelete } from '@/utils/confirmDelete'
 
 const chatStore = useAiChatStore()
 const userStore = useUserStore()
@@ -353,15 +354,17 @@ function useQuickQuestion(question: string) {
 }
 
 async function removeSession(session: ChatSession) {
-  await ElMessageBox.confirm(`确认删除对话“${session.title}”吗？`, '删除对话', { type: 'warning' })
+  const ok = await confirmDelete({
+    title: '删除对话',
+    message: `确认删除对话「${session.title}」吗？`
+  })
+  if (!ok) return
   try {
     await chatStore.removeSession(session)
     ElMessage.success('对话已删除')
-  } catch (error: any) {
-    if (error !== 'cancel' && error !== 'close') {
-      console.error(error)
-      ElMessage.error('删除对话失败')
-    }
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('删除对话失败')
   }
 }
 

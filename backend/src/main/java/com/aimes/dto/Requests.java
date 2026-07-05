@@ -216,10 +216,18 @@ public final class Requests {
     }
 
     @Data
+    public static class SchedulingBottleneckItem {
+        private String processName;
+        private Integer loadRate;
+        private String suggestion;
+    }
+
+    @Data
     public static class SchedulingApplyRequest {
         private LocalDate planDate;
         private String summary;
         private List<SchedulingPriorityItem> priorities;
+        private List<SchedulingBottleneckItem> bottlenecks;
         @NotEmpty(message = "派工建议不能为空")
         private List<SchedulingDispatchItem> dispatches;
     }

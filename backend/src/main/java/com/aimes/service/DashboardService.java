@@ -82,6 +82,7 @@ public class DashboardService {
         stats.put("materialAlertCount", materialAlerts);
         stats.put("newMaterialAlertCount", newMaterialAlerts);
         stats.put("outputTrend", getOutputTrend());
+        stats.put("todayOutput", countDoneOrdersBetween(todayStart, tomorrowStart));
 
         Map<String, Object> deviceSummary = deviceService.summary();
         stats.put("deviceTotalCount", deviceSummary.get("totalCount"));
@@ -165,7 +166,7 @@ public class DashboardService {
         return Map.of(
                 "exceptions", latestExceptions,
                 "materials", materialAlerts,
-                "devices", deviceService.summary().get("devices")
+                "devices", deviceService.alertDevices()
         );
     }
 
@@ -177,7 +178,7 @@ public class DashboardService {
         long total = prodWorkOrderMapper.selectCount(null);
         long done = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
                 .eq(ProdWorkOrder::getStatus, "done"));
-        // 今日实际完成的工单列表
+        // 今日产出：今天实际完工（进度到 100%）的工单数；准时 = 完工时间不超过交期
         List<ProdWorkOrder> todayDoneOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
                 .eq(ProdWorkOrder::getStatus, "done")
                 .ge(ProdWorkOrder::getUpdatedTime, todayStart)
@@ -185,7 +186,6 @@ public class DashboardService {
         long todayDone = todayDoneOrders.size();
         int completionRate = total == 0 ? 0 : (int) (done * 100 / total);
 
-        // 统计其中准时完成的工单数
         long onTimeDone = todayDoneOrders.stream()
                 .filter(order -> order.getDeadline() == null || !order.getUpdatedTime().isAfter(order.getDeadline()))
                 .count();
@@ -232,16 +232,20 @@ public class DashboardService {
             LocalDate d = today.minusDays(i);
             LocalDateTime start = d.atStartOfDay();
             LocalDateTime end = d.plusDays(1).atStartOfDay();
-            long count = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
-                    .eq(ProdWorkOrder::getStatus, "done")
-                    .ge(ProdWorkOrder::getUpdatedTime, start)
-                    .lt(ProdWorkOrder::getUpdatedTime, end));
-            
+            long count = countDoneOrdersBetween(start, end);
+
             Map<String, Object> point = new LinkedHashMap<>();
             point.put("date", d.getMonthValue() + "/" + d.getDayOfMonth());
             point.put("outputQty", count);
             trend.add(point);
         }
         return trend;
+    }
+
+    private long countDoneOrdersBetween(LocalDateTime start, LocalDateTime end) {
+        return prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
+                .eq(ProdWorkOrder::getStatus, "done")
+                .ge(ProdWorkOrder::getUpdatedTime, start)
+                .lt(ProdWorkOrder::getUpdatedTime, end));
     }
 }

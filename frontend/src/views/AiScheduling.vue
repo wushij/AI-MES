@@ -275,7 +275,7 @@
               <div class="section-title-wrapper">
                 <div class="section-indicator section-indicator--red" />
                 <span class="section-title">设备负荷概览</span>
-                <el-button link type="primary" size="small" @click="router.push('/devices')">设备管理</el-button>
+                <el-button class="header-pill-btn btn-device" @click="router.push('/devices')">查看设备</el-button>
               </div>
             </template>
             <div class="team-load-grid">
@@ -343,7 +343,7 @@
               <div class="section-title-wrapper">
                 <div class="section-indicator section-indicator--amber" />
                 <span class="section-title">物料影响链</span>
-                <el-button link type="primary" size="small" @click="router.push('/materials')">查看物料</el-button>
+                <el-button class="header-pill-btn btn-material" @click="router.push('/materials')">查看物料</el-button>
               </div>
             </template>
             <div class="material-chain">
@@ -455,7 +455,7 @@
     </div>
 
     <!-- 4. 应用前差异预览 -->
-    <el-dialog v-model="applyDialogVisible" title="应用排产建议" width="820px" destroy-on-close class="apply-dialog">
+    <el-dialog v-model="applyDialogVisible" title="应用排产建议" width="920px" destroy-on-close class="apply-dialog">
       <div class="apply-dialog__meta">
         <div class="apply-dialog__meta-row">
           <span class="apply-dialog__label">计划日期</span>
@@ -477,17 +477,40 @@
         </div>
       </div>
 
-      <el-alert
-        v-if="resultSummary"
-        type="info"
-        :closable="false"
-        show-icon
-        class="apply-dialog__summary"
-        :title="resultSummary"
-      />
+      <div v-if="applyOverview" class="apply-dialog__overview">
+        <div class="apply-dialog__overview-title">排产结论</div>
+        <p v-if="applyOverview.summary" class="apply-dialog__overview-summary">{{ applyOverview.summary }}</p>
+        <template v-if="applyOverview.bottlenecks.length">
+          <div class="apply-dialog__overview-label">瓶颈与风险</div>
+          <ul class="apply-dialog__overview-list">
+            <li
+              v-for="item in applyOverview.bottlenecks"
+              :key="`${item.processName}-${item.loadRate}`"
+              class="apply-dialog__overview-item"
+            >
+              <strong>{{ item.processName }}</strong>
+              <el-tag size="small" type="warning" effect="plain">{{ item.loadRate }}%</el-tag>
+              <span>{{ item.suggestion }}</span>
+            </li>
+          </ul>
+        </template>
+        <template v-if="applyOverview.priorities.length">
+          <div class="apply-dialog__overview-label">工单依据</div>
+          <ul class="apply-dialog__overview-list">
+            <li
+              v-for="item in applyOverview.priorities"
+              :key="item.workOrderCode"
+              class="apply-dialog__overview-item"
+            >
+              <strong>{{ item.workOrderCode }}</strong>
+              <span>{{ item.reason }}</span>
+            </li>
+          </ul>
+        </template>
+      </div>
 
       <p class="diff-intro">
-        将按当前 AI 排产建议写入工单：班组、优先级、状态，以及建议开工时间与排序理由；人工备注保持不变。
+        下方表格仅展示将要写入工单的字段变更；完整排产说明见上方，并会一并保存到工单。
         <template v-if="applyChangeCount">
           共 {{ applyDiffRows.length }} 条派工，其中 {{ applyChangeCount }} 条班组/优先级有变更。
         </template>
@@ -511,7 +534,6 @@
         </el-table-column>
         <el-table-column prop="suggestedStart" label="建议开工" min-width="150" />
         <el-table-column prop="suggestedHours" label="工时" width="72" />
-        <el-table-column prop="priorityReason" label="排序理由" min-width="180" show-overflow-tooltip />
       </el-table>
 
       <template #footer>
@@ -682,6 +704,24 @@ const applyDiffRows = computed(() => {
     result.value.priorities,
     result.value.dispatches
   )
+})
+
+const applyOverview = computed(() => {
+  if (!result.value) return null
+  const summary = (resultSummary.value || result.value.summary || '').trim()
+  const bottlenecks = appliedConstraints.deviceLoad ? (result.value.bottlenecks ?? []) : []
+  const priorityItems = (result.value.priorities ?? [])
+    .filter((item) => {
+      const reason = String(item.reason ?? '').trim()
+      return reason && reason !== '--'
+    })
+    .map((item) => ({
+      workOrderCode: item.workOrderCode,
+      reason: String(item.reason ?? '').trim()
+    }))
+  const priorities = priorityItems.length > 1 || !summary ? priorityItems : []
+  if (!summary && !bottlenecks.length && !priorities.length) return null
+  return { summary, bottlenecks, priorities }
 })
 
 const applyChangeCount = computed(() => applyDiffRows.value.filter((row) => row.hasChanges).length)
@@ -884,6 +924,7 @@ async function applySuggestions() {
       planDate: form.planDate,
       summary: resultSummary.value || result.value.summary,
       priorities: result.value.priorities,
+      bottlenecks: result.value.bottlenecks,
       dispatches: result.value.dispatches
     })
     const appliedCount = Number(response.appliedCount ?? 0)
@@ -1601,6 +1642,37 @@ function goToWorkOrdersAfterApply() {
   color: #334155;
 }
 
+.header-pill-btn.el-button {
+  border-radius: 20px !important;
+  padding: 4px 10px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  height: 22px !important;
+  background: #fff !important;
+  border: 1.5px solid #e2e8f0 !important;
+  transition: all 0.2s ease !important;
+  margin: 0 0 0 8px !important;
+  cursor: pointer !important;
+}
+
+.header-pill-btn.el-button.btn-device {
+  color: #4f46e5 !important;
+  border-color: #e0e7ff !important;
+}
+.header-pill-btn.el-button.btn-device:hover {
+  background: #e0e7ff !important;
+  border-color: #c7d2fe !important;
+}
+
+.header-pill-btn.el-button.btn-material {
+  color: #f59e0b !important;
+  border-color: #fef3c7 !important;
+}
+.header-pill-btn.el-button.btn-material:hover {
+  background: #fef3c7 !important;
+  border-color: #fde68a !important;
+}
+
 .team-load-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1843,8 +1915,58 @@ function goToWorkOrdersAfterApply() {
   gap: 6px;
 }
 
-.apply-dialog__summary {
-  margin-bottom: 12px;
+.apply-dialog__overview {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.apply-dialog__overview-title {
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.apply-dialog__overview-summary {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #475569;
+}
+
+.apply-dialog__overview-label {
+  margin: 10px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.apply-dialog__overview-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apply-dialog__overview-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #475569;
+}
+
+.apply-dialog__overview-item + .apply-dialog__overview-item {
+  margin-top: 8px;
+}
+
+.apply-dialog__overview-item strong {
+  color: #334155;
+  flex-shrink: 0;
 }
 
 .apply-success-dialog :deep(.el-dialog__header) {

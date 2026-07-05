@@ -10,10 +10,12 @@ import { initThemeFromStorage } from '@/utils/theme'
 import { applyFavicon, warmBrandIconCache } from '@/utils/brandIconCache'
 import '@/assets/styles/theme.css'
 import '@/assets/styles/layout-sidebar.css'
+import { installSelectToggle } from '@/plugins/selectToggle'
 
 initThemeFromStorage()
 applyFavicon()
 void warmBrandIconCache()
+installSelectToggle()
 
 const app = createApp(App)
 

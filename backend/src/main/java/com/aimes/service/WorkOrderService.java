@@ -4,6 +4,7 @@ import com.aimes.common.BusinessException;
 import com.aimes.common.OperationLog;
 import com.aimes.common.OperationLogRunner;
 import com.aimes.dto.Requests.SchedulingApplyRequest;
+import com.aimes.dto.Requests.SchedulingBottleneckItem;
 import com.aimes.dto.Requests.SchedulingDispatchItem;
 import com.aimes.dto.Requests.SchedulingPriorityItem;
 import com.aimes.dto.Requests.WorkOrderAssignRequest;
@@ -317,14 +318,18 @@ public class WorkOrderService {
         if (request.getProgress() >= 100) {
             return complete(id);
         }
+        order.setUpdatedTime(LocalDateTime.now());
+        prodWorkOrderMapper.updateById(order);
         return detail(id);
     }
 
     @Transactional
     public Map<String, Object> complete(Long id) {
         ProdWorkOrder order = getOrder(id);
+        LocalDateTime completedAt = LocalDateTime.now();
         order.setProgress(100);
         order.setStatus("done");
+        order.setUpdatedTime(completedAt);
         prodWorkOrderMapper.updateById(order);
 
         List<ProdProcessRecord> records = prodProcessRecordMapper.selectList(new LambdaQueryWrapper<ProdProcessRecord>()
@@ -390,6 +395,8 @@ public class WorkOrderService {
             Integer suggestedPriority = resolveSchedulingPriority(priorityItem);
             Integer previousPriority = order.getPriority();
             Long previousTeamId = order.getTeamId();
+            ProdTeam previousTeam = previousTeamId == null ? null : prodTeamMapper.selectById(previousTeamId);
+            String previousTeamName = previousTeam == null ? "未分配" : previousTeam.getTeamName();
 
             order.setTeamId(team.getId());
             order.setStatus("assigned");
@@ -398,11 +405,13 @@ public class WorkOrderService {
             }
             order.setScheduledStartTime(parseSchedulingStartTime(item.getStartTime(), request.getPlanDate()));
             order.setEstimatedHours(parseEstimatedHours(item.getHours()));
-            if (priorityItem != null) {
-                if (StringUtils.hasText(priorityItem.getReason())) {
-                    order.setSchedulingReason(priorityItem.getReason().trim());
-                }
-            }
+            order.setSchedulingReason(buildSchedulingReason(
+                    request.getPlanDate(),
+                    team.getTeamName(),
+                    previousTeamName,
+                    priorityItem,
+                    request.getSummary(),
+                    request.getBottlenecks()));
             order.setSchedulingRank(null);
             order.setRemark(stripLegacyAiSchedulingRemark(order.getRemark()));
             prodWorkOrderMapper.updateById(order);
@@ -445,10 +454,10 @@ public class WorkOrderService {
         LocalDateTime tomorrowStart = today.plusDays(1).atStartOfDay();
         LambdaQueryWrapper<ProdWorkOrder> wrapper = new LambdaQueryWrapper<ProdWorkOrder>()
                 .eq(ProdWorkOrder::getStatus, "done")
-                .ge(ProdWorkOrder::getDeadline, todayStart)
-                .lt(ProdWorkOrder::getDeadline, tomorrowStart)
+                .ge(ProdWorkOrder::getUpdatedTime, todayStart)
+                .lt(ProdWorkOrder::getUpdatedTime, tomorrowStart)
                 .eq(teamId != null, ProdWorkOrder::getTeamId, teamId)
-                .orderByAsc(ProdWorkOrder::getPriority);
+                .orderByDesc(ProdWorkOrder::getUpdatedTime);
         return prodWorkOrderMapper.selectList(wrapper).stream().map(this::toView).toList();
     }
 
@@ -559,6 +568,69 @@ public class WorkOrderService {
         }
     }
 
+    private String buildSchedulingReason(
+            LocalDate planDate,
+            String teamName,
+            String previousTeamName,
+            SchedulingPriorityItem priorityItem,
+            String summary,
+            List<SchedulingBottleneckItem> bottlenecks) {
+        if (StringUtils.hasText(summary)) {
+            return trimSchedulingReason(summary.trim());
+        }
+
+        List<String> parts = new ArrayList<>();
+        if (planDate != null) {
+            parts.add("计划排产日 " + planDate);
+        }
+        if (StringUtils.hasText(teamName)) {
+            if (StringUtils.hasText(previousTeamName) && !teamName.equals(previousTeamName)) {
+                parts.add("建议班组 " + teamName + "（原 " + previousTeamName + "）");
+            } else {
+                parts.add("建议班组 " + teamName);
+            }
+        }
+        if (priorityItem != null && StringUtils.hasText(priorityItem.getReason())) {
+            parts.add(priorityItem.getReason().trim());
+        }
+        if (bottlenecks != null) {
+            for (SchedulingBottleneckItem bottleneck : bottlenecks) {
+                String line = formatSchedulingBottleneck(bottleneck);
+                if (StringUtils.hasText(line)) {
+                    parts.add(line);
+                }
+            }
+        }
+        if (parts.isEmpty()) {
+            return null;
+        }
+        return trimSchedulingReason(String.join("；", parts));
+    }
+
+    private String trimSchedulingReason(String text) {
+        return text.length() > 500 ? text.substring(0, 497) + "..." : text;
+    }
+
+    private String formatSchedulingBottleneck(SchedulingBottleneckItem bottleneck) {
+        if (bottleneck == null) {
+            return null;
+        }
+        StringBuilder line = new StringBuilder();
+        if (StringUtils.hasText(bottleneck.getProcessName())) {
+            line.append(bottleneck.getProcessName().trim());
+            if (bottleneck.getLoadRate() != null && bottleneck.getLoadRate() > 0) {
+                line.append("负荷").append(bottleneck.getLoadRate()).append("%");
+            }
+        }
+        if (StringUtils.hasText(bottleneck.getSuggestion())) {
+            if (line.length() > 0) {
+                line.append("：");
+            }
+            line.append(bottleneck.getSuggestion().trim());
+        }
+        return line.length() > 0 ? line.toString() : null;
+    }
+
     private Map<String, SchedulingPriorityItem> buildSchedulingPriorityMap(SchedulingApplyRequest request) {
         Map<String, SchedulingPriorityItem> map = new LinkedHashMap<>();
         if (request.getPriorities() == null) {
@@ -654,6 +726,9 @@ public class WorkOrderService {
         view.put("exceptionCount", exceptionCount);
         view.put("createdTime", order.getCreatedTime());
         view.put("updatedTime", order.getUpdatedTime());
+        if ("done".equals(order.getStatus())) {
+            view.put("completedAt", order.getUpdatedTime());
+        }
         return view;
     }
 }
