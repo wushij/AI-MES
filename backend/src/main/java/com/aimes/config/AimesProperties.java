@@ -11,6 +11,6 @@ public class AimesProperties {
 
     private String uploadDir = "uploads";
     private int planSplitQty = 100;
-    /** 工单完工时按 BOM 写领料流水 */
+    /** 生产执行时按工序领料；无工序领料记录时工单完工回退按 BOM */
     private boolean bomPickOnComplete = true;
 }

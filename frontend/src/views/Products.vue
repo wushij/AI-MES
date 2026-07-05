@@ -1,6 +1,6 @@
 <template>
   <div class="view-page">
-    <PageHeader title="产品管理" subtitle="维护产品主数据与单层 BOM 物料清单。" />
+    <PageHeader title="产品管理" subtitle="维护产品主数据；BOM 由工艺路线工序物料自动汇总。" />
 
     <el-card shadow="never" class="toolbar-card">
       <div class="toolbar">
@@ -38,7 +38,12 @@
         <el-table-column prop="productName" label="产品名称" min-width="160" show-overflow-tooltip align="center" />
         <el-table-column prop="spec" label="规格" min-width="140" show-overflow-tooltip align="center" />
         <el-table-column prop="unit" label="单位" width="80" align="center" />
-        <el-table-column label="BOM" width="90" align="center">
+        <el-table-column label="成品库存" width="110" align="center">
+          <template #default="{ row }">
+            {{ row.stockQty ?? 0 }} {{ row.unit }}
+          </template>
+        </el-table-column>
+        <el-table-column label="工艺物料" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="row.hasBom ? 'success' : 'info'" size="small">{{ row.hasBom ? '已配置' : '未配置' }}</el-tag>
           </template>
@@ -51,7 +56,7 @@
         <el-table-column label="操作" fixed="right" width="280" align="center">
           <template #default="{ row }">
             <div class="action-cell">
-              <el-button size="small" class="action-btn action-btn--detail" @click="openDetail(row)">详情/BOM</el-button>
+              <el-button size="small" class="action-btn action-btn--detail" @click="openDetail(row)">详情</el-button>
               <el-button size="small" class="action-btn action-btn--edit" @click="openEdit(row)">编辑</el-button>
               <el-button size="small" class="action-btn action-btn--delete" :loading="deleteLoading === row.id" @click="removeProduct(row)">删除</el-button>
             </div>
@@ -165,73 +170,119 @@
         </div>
 
         <div class="detail-kpi-row">
+          <div class="detail-kpi-card detail-kpi-card--stock">
+            <span class="detail-kpi-card__label">成品库存</span>
+            <span class="detail-kpi-card__value">
+              {{ detailProduct.stockQty ?? 0 }}
+              <span class="detail-kpi-card__unit">{{ detailProduct.unit }}</span>
+            </span>
+          </div>
           <div class="detail-kpi-card" :class="{ 'detail-kpi-card--success': detailProduct.hasBom }">
-            <span class="detail-kpi-card__label">BOM 配置</span>
+            <span class="detail-kpi-card__label">工艺物料</span>
             <span class="detail-kpi-card__value">{{ detailProduct.hasBom ? '已配置' : '未配置' }}</span>
           </div>
           <div class="detail-kpi-card">
-            <span class="detail-kpi-card__label">物料行数</span>
+            <span class="detail-kpi-card__label">汇总行数</span>
             <span class="detail-kpi-card__value">{{ bomItems.length }}</span>
           </div>
           <div class="detail-kpi-card">
-            <span class="detail-kpi-card__label">备注</span>
-            <span class="detail-kpi-card__value detail-kpi-card__value--sm">{{ detailProduct.remark || '—' }}</span>
+            <span class="detail-kpi-card__label">来源工艺</span>
+            <span class="detail-kpi-card__value detail-kpi-card__value--sm">{{ bomMeta.routeName || '—' }}</span>
           </div>
         </div>
 
         <div class="detail-section">
           <div class="detail-section__header">
-            <span class="detail-section__title">BOM 物料清单</span>
-            <div class="bom-toolbar">
-              <el-button size="small" class="btn-outline" @click="addBomRow">添加物料</el-button>
-              <el-button size="small" type="primary" class="btn-submit-sm" :loading="savingBom" @click="saveBom">保存 BOM</el-button>
-            </div>
+            <span class="detail-section__title">库存流水</span>
+            <span class="detail-section__count">共 {{ transactions.length }} 条</span>
           </div>
-          <el-table :data="bomItems" border stripe size="small" max-height="300" :header-cell-style="tableHeaderStyle" class="bom-table">
+          <el-table
+            v-loading="txnLoading"
+            :data="transactions"
+            border
+            stripe
+            size="small"
+            max-height="240"
+            :header-cell-style="tableHeaderStyle"
+            class="detail-txn-table"
+          >
             <template #empty>
-              <el-empty description="暂无 BOM 物料，点击「添加物料」开始配置" :image-size="64" />
+              <el-empty description="暂无库存流水，工单完工后将自动入库" :image-size="64" />
             </template>
-            <el-table-column label="物料" min-width="220" align="center">
+            <el-table-column prop="createdTime" label="时间" min-width="150" align="center" />
+            <el-table-column label="类型" width="92" align="center">
               <template #default="{ row }">
-                <el-select
-                  v-model="row.materialId"
-                  filterable
-                  placeholder="选择物料"
-                  class="bom-field full-width"
-                  @change="(id: string | number) => onBomMaterialChange(row, id)"
-                >
-                  <el-option
-                    v-for="m in materialOptions"
-                    :key="m.id"
-                    :label="`${m.materialCode} - ${m.materialName}`"
-                    :value="m.id"
-                  />
-                </el-select>
+                <span class="txn-type-badge" :class="row.txnType">{{ txnTypeLabel(row.txnType) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="用量" width="110" align="center">
+            <el-table-column prop="qty" label="数量" width="80" align="center" />
+            <el-table-column label="库存变化" min-width="130" align="center">
               <template #default="{ row }">
-                <el-input-number v-model="row.qty" :min="0.0001" :step="0.1" :controls="false" class="bom-field full-width" />
+                <span class="txn-change">{{ row.beforeQty }} → {{ row.afterQty }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="单位" width="100" align="center">
+            <el-table-column label="备注" min-width="120" align="center">
               <template #default="{ row }">
-                <el-select v-model="row.unit" placeholder="单位" class="bom-field full-width">
-                  <el-option v-for="u in unitOptions" :key="u" :label="u" :value="u" />
-                </el-select>
-              </template>
-            </el-table-column>
-            <el-table-column label="损耗%" width="100" align="center">
-              <template #default="{ row }">
-                <el-input-number v-model="row.lossRate" :min="0" :max="100" :controls="false" class="bom-field full-width" />
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="80" align="center">
-              <template #default="{ $index }">
-                <el-button size="small" class="bom-delete-btn" @click="removeBomRow($index)">删除</el-button>
+                <el-tooltip v-if="row.remark" :content="row.remark" placement="top" :show-after="200">
+                  <span class="txn-remark">{{ row.remark }}</span>
+                </el-tooltip>
+                <span v-else class="txn-remark-placeholder">—</span>
               </template>
             </el-table-column>
           </el-table>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-section__header">
+            <span class="detail-section__title">BOM 物料清单（工艺汇总）</span>
+          </div>
+          <div v-if="bomMeta.remark" class="bom-source-hint">
+            <el-icon class="bom-source-icon"><InfoFilled /></el-icon>
+            <span class="bom-source-text">{{ bomMeta.remark }}</span>
+          </div>
+          <el-table :data="bomItems" border stripe size="small" max-height="260" :header-cell-style="tableHeaderStyle" class="bom-table">
+            <template #empty>
+              <el-empty description="暂无工序物料，请前往工艺管理为各工序配置物料" :image-size="64" />
+            </template>
+            <el-table-column label="物料" min-width="200" align="center">
+              <template #default="{ row }">
+                <div class="bom-material-cell">
+                  <span class="bom-material-cell__name">{{ row.materialName || row.materialCode }}</span>
+                  <span v-if="row.materialCode" class="bom-material-cell__code">{{ row.materialCode }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="单件用量" width="100" align="center" prop="qty" />
+            <el-table-column label="单位" width="80" align="center" prop="unit" />
+            <el-table-column label="来源工序" min-width="160" align="center">
+              <template #default="{ row }">
+                <span class="bom-op-label">{{ row.operationNamesLabel || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="类型" width="90" align="center">
+              <template #default="{ row }">
+                <span v-if="row.materialType" class="material-type-badge" :class="row.materialType">{{ materialTypeLabel(row.materialType) }}</span>
+                <span v-else>—</span>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div v-if="bomDetails.length" class="detail-subsection">
+            <div class="detail-subsection__title">工序明细</div>
+            <el-table :data="bomDetails" border stripe size="small" max-height="220" :header-cell-style="tableHeaderStyle">
+              <el-table-column prop="operationName" label="工序" width="100" align="center" />
+              <el-table-column label="物料" min-width="180" align="center">
+                <template #default="{ row }">
+                  <div class="bom-material-cell">
+                    <span class="bom-material-cell__name">{{ row.materialName || row.materialCode }}</span>
+                    <span v-if="row.materialCode" class="bom-material-cell__code">{{ row.materialCode }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column prop="qty" label="单件用量" width="100" align="center" />
+              <el-table-column prop="unit" label="单位" width="80" align="center" />
+            </el-table>
+          </div>
         </div>
       </template>
 
@@ -249,19 +300,18 @@
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { onMounted, reactive, ref } from 'vue'
-import { Goods } from '@element-plus/icons-vue'
+import { Goods, InfoFilled } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
-import type { BomItem, Product } from '@/api/products'
-import { createProduct, deleteProduct, getProduct, getProducts, saveProductBom, updateProduct } from '@/api/products'
-import { getMaterialOptions } from '@/api/materials'
+import type { BomDetailItem, BomItem, Product, ProductBom, ProductTransaction } from '@/api/products'
+import { createProduct, deleteProduct, getProduct, getProductTransactions, getProducts, updateProduct } from '@/api/products'
+import { materialTypeLabel } from '@/api/processRoutes'
 import { normalizeList } from '@/utils/normalizeList'
 import { confirmDelete } from '@/utils/confirmDelete'
 
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600' }
 const loading = ref(false)
 const saving = ref(false)
-const savingBom = ref(false)
 const deleteLoading = ref<string | number | null>(null)
 const products = ref<Product[]>([])
 const filters = reactive({ keyword: '', status: '' })
@@ -285,22 +335,19 @@ const formRules: FormRules = {
 
 const detailVisible = ref(false)
 const detailProduct = ref<Product | null>(null)
+const transactions = ref<ProductTransaction[]>([])
+const txnLoading = ref(false)
 const bomItems = ref<BomItem[]>([])
-const materialOptions = ref<Array<{ id: number | string; materialCode: string; materialName: string; unit: string }>>([])
-const unitOptions = ['个', '件', '瓶', 'kg', '米', '套']
+const bomDetails = ref<BomDetailItem[]>([])
+const bomMeta = reactive({
+  routeName: '',
+  version: '',
+  remark: ''
+})
 
 onMounted(() => {
   loadProducts()
-  loadMaterialOptions()
 })
-
-async function loadMaterialOptions() {
-  try {
-    materialOptions.value = await getMaterialOptions()
-  } catch (error) {
-    console.error(error)
-  }
-}
 
 async function loadProducts() {
   loading.value = true
@@ -376,68 +423,52 @@ async function openDetail(row: Product) {
   try {
     const detail = await getProduct(row.id)
     detailProduct.value = detail
-    bomItems.value = (detail.bom?.items ?? []).map((item) => ({
-      materialId: item.materialId,
-      qty: Number(item.qty ?? 1),
-      unit: item.unit || '件',
-      lossRate: Number(item.lossRate ?? 0),
-      remark: item.remark
+    const bom = detail.bom as ProductBom | undefined
+    bomItems.value = (bom?.items ?? []).map((item) => ({
+      ...item,
+      qty: Number(item.qty ?? 0),
+      operationNamesLabel: item.operationNamesLabel || (item.operationNames ?? []).join('、')
     }))
+    bomDetails.value = bom?.details ?? []
+    bomMeta.routeName = bom?.routeName ? `${bom.routeName}${bom.version ? ` (${bom.version})` : ''}` : ''
+    bomMeta.version = bom?.version ?? ''
+    bomMeta.remark = bom?.remark ?? ''
     detailVisible.value = true
+    txnLoading.value = true
+    try {
+      transactions.value = await getProductTransactions(row.id)
+    } catch (error) {
+      console.error(error)
+      transactions.value = []
+    } finally {
+      txnLoading.value = false
+    }
   } catch (error) {
     console.error(error)
     ElMessage.error('加载产品详情失败')
   }
 }
 
+function txnTypeLabel(type: string) {
+  const map: Record<string, string> = { in: '入库', out: '出库', pick: '领料', return: '退料', adjust: '调整' }
+  return map[type] || type
+}
+
+function txnTypeTagType(type: string): 'success' | 'warning' | 'info' | 'danger' | '' {
+  const map: Record<string, 'success' | 'warning' | 'info' | 'danger' | ''> = {
+    in: 'success',
+    out: 'warning',
+    pick: 'info',
+    return: '',
+    adjust: 'danger'
+  }
+  return map[type] ?? ''
+}
+
 function openEditFromDetail() {
   if (!detailProduct.value) return
   detailVisible.value = false
   openEdit(detailProduct.value)
-}
-
-function addBomRow() {
-  bomItems.value.push({ materialId: '', qty: 1, unit: '件', lossRate: 0 })
-}
-
-function onBomMaterialChange(row: BomItem, materialId: number | string) {
-  const material = materialOptions.value.find((m) => String(m.id) === String(materialId))
-  if (material?.unit) {
-    row.unit = material.unit
-  }
-}
-
-async function removeBomRow(index: number) {
-  const row = bomItems.value[index]
-  const material = materialOptions.value.find((m) => String(m.id) === String(row?.materialId))
-  const label = material ? `${material.materialCode} - ${material.materialName}` : `第 ${index + 1} 行`
-  const ok = await confirmDelete({
-    title: '删除 BOM 物料',
-    message: `确认删除 BOM 物料「${label}」？删除后需点击「保存 BOM」才会生效。`
-  })
-  if (!ok) return
-  bomItems.value.splice(index, 1)
-}
-
-async function saveBom() {
-  if (!detailProduct.value) return
-  const items = bomItems.value.filter((row) => row.materialId)
-  if (!items.length) {
-    ElMessage.warning('请至少添加一条 BOM 行')
-    return
-  }
-  savingBom.value = true
-  try {
-    await saveProductBom(detailProduct.value.id, { items })
-    ElMessage.success('BOM 已保存')
-    detailProduct.value.hasBom = true
-    loadProducts()
-  } catch (error) {
-    console.error(error)
-    ElMessage.error('保存 BOM 失败')
-  } finally {
-    savingBom.value = false
-  }
 }
 
 async function removeProduct(row: Product) {
@@ -653,7 +684,7 @@ async function removeProduct(row: Product) {
 
 .detail-kpi-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -679,6 +710,22 @@ async function removeProduct(row: Product) {
   color: #15803d;
 }
 
+.detail-kpi-card--stock {
+  border-left-color: #6366f1;
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.detail-kpi-card--stock .detail-kpi-card__value {
+  color: #4338ca;
+}
+
+.detail-kpi-card__unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  margin-left: 4px;
+}
+
 .detail-kpi-card__label {
   font-size: 12px;
   color: #64748b;
@@ -698,6 +745,10 @@ async function removeProduct(row: Product) {
   word-break: break-all;
 }
 
+.detail-section {
+  margin-top: 24px;
+}
+
 .detail-section__header {
   display: flex;
   align-items: center;
@@ -713,10 +764,142 @@ async function removeProduct(row: Product) {
   color: #1e293b;
 }
 
-.bom-toolbar {
+.detail-section__count {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.detail-txn-table {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.detail-txn-table :deep(.el-table__empty-block) {
+  min-height: 120px;
+}
+
+.txn-change {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: #475569;
+}
+
+.txn-remark {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: #475569;
+}
+
+.txn-remark-placeholder {
+  color: #cbd5e1;
+}
+
+.bom-source-hint {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #f0f9ff;
+  border: 1px solid #e0f2fe;
+  font-size: 12px;
+  color: #0369a1;
   display: flex;
+  align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+}
+
+.bom-source-icon {
+  font-size: 16px;
+  color: #0284c7;
+  flex-shrink: 0;
+}
+
+.bom-source-text {
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.material-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+.material-type-badge.raw {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+.material-type-badge.semi {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+.material-type-badge.aux {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+.material-type-badge.tooling {
+  background: #fffbeb;
+  color: #d97706;
+  border-color: #fde68a;
+}
+
+.txn-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.txn-type-badge.in { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+.txn-type-badge.out { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+.txn-type-badge.pick { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.txn-type-badge.return { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
+.txn-type-badge.adjust { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+
+.bom-material-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+
+.bom-material-cell__name {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.bom-material-cell__code {
+  font-size: 12px;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.bom-op-label {
+  font-size: 12px;
+  color: #334155;
+}
+
+.detail-subsection {
+  margin-top: 16px;
+}
+
+.detail-subsection__title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
 }
 
 .bom-table {
@@ -729,80 +912,11 @@ async function removeProduct(row: Product) {
 }
 
 .bom-table :deep(.el-table__cell) {
-  padding: 12px 8px !important;
-  overflow: visible !important;
-}
-
-.bom-table :deep(.cell) {
-  overflow: visible !important;
-  line-height: normal;
-  padding: 2px 4px;
+  padding: 10px 8px !important;
 }
 
 .bom-table :deep(.el-table__empty-block) {
   min-height: 120px;
-}
-
-/* Compact inputs inside BOM table — override global pill padding */
-.bom-table :deep(.bom-field.el-input-number) {
-  width: 100%;
-  line-height: normal;
-  border-radius: 20px !important;
-  overflow: hidden;
-}
-
-.bom-table :deep(.bom-field.el-input-number .el-input__wrapper) {
-  padding-left: 8px !important;
-  padding-right: 8px !important;
-}
-
-.bom-table :deep(.bom-field .el-input__wrapper),
-.bom-table :deep(.bom-field.el-select .el-select__wrapper) {
-  border-radius: 20px !important;
-  min-height: 32px;
-  padding: 4px 12px !important;
-  box-shadow: 0 0 0 1px #e2e8f0 inset !important;
-  background-color: #fff !important;
-}
-
-.bom-table :deep(.bom-field.el-select .el-select__selection) {
-  flex: 1;
-  justify-content: center;
-}
-
-.bom-table :deep(.bom-field.el-select .el-select__selected-item),
-.bom-table :deep(.bom-field.el-select .el-select__placeholder) {
-  text-align: center;
-}
-
-.bom-table :deep(.bom-field.el-input) {
-  width: 100%;
-}
-
-.bom-table :deep(.bom-field .el-input__wrapper.is-focus),
-.bom-table :deep(.bom-field.el-select .el-select__wrapper.is-focused),
-.bom-table :deep(.bom-field.el-input-number:focus-within) {
-  box-shadow: 0 0 0 1px #4f46e5 inset !important;
-}
-
-.bom-table :deep(.bom-field.el-input-number:focus-within) {
-  box-shadow: 0 0 0 1px #4f46e5 inset, 0 0 0 2px rgba(79, 70, 229, 0.12) !important;
-}
-
-.bom-table :deep(.bom-field .el-input__inner) {
-  text-align: center;
-  height: 24px;
-  line-height: 24px;
-}
-
-.btn-outline {
-  border-radius: 16px !important;
-  border: 1px solid #e2e8f0 !important;
-}
-
-.btn-submit-sm {
-  border-radius: 16px !important;
-  font-weight: 600;
 }
 
 .dialog-footer-custom {
@@ -879,24 +993,5 @@ async function removeProduct(row: Product) {
     0 0 0 1px #4f46e5 inset,
     0 0 0 3px rgba(79, 70, 229, 0.12) !important;
   outline: none !important;
-}
-
-.bom-table :deep(.bom-delete-btn.el-button) {
-  border-radius: 9999px !important;
-  padding: 5px 16px !important;
-  border: 1px solid rgba(239, 68, 68, 0.4) !important;
-  color: #ef4444 !important;
-  background-color: #fff !important;
-  font-weight: 500;
-  box-shadow: none !important;
-  height: auto !important;
-  min-height: 28px;
-  transition: all 0.2s ease;
-}
-
-.bom-table :deep(.bom-delete-btn.el-button:hover) {
-  background-color: rgba(239, 68, 68, 0.06) !important;
-  border-color: #ef4444 !important;
-  color: #dc2626 !important;
 }
 </style>

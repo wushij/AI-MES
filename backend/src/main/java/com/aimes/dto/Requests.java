@@ -48,7 +48,7 @@ public final class Requests {
         private Long productId;
         @NotBlank(message = "产品名称不能为空")
         private String productName;
-        @Min(value = 1, message = "工单数量必须大于 0")
+        @Min(value = 1, message = "生产数量必须大于 0")
         private Integer orderQty;
         private String orderNo;
         private Long teamId;
@@ -70,7 +70,7 @@ public final class Requests {
         private Long planId;
         private Long productId;
         private String productName;
-        @Min(value = 1, message = "工单数量必须大于 0")
+        @Min(value = 1, message = "生产数量必须大于 0")
         private Integer orderQty;
         private Long teamId;
         private String processName;
@@ -107,6 +107,7 @@ public final class Requests {
         private String processName;
         private Boolean completeCurrentProcess;
         private Long deviceId;
+        private java.util.List<Long> deviceIds;
         private String remark;
     }
 
@@ -150,6 +151,9 @@ public final class Requests {
     public static class MaterialUpdateRequest {
         private Double stockQty;
         private Double inboundQty;
+        private String materialName;
+        private Double safetyStock;
+        private String unit;
         private String remark;
     }
 
@@ -504,3 +508,4 @@ public final class Requests {
         private String remark;
     }
 }
+

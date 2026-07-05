@@ -48,14 +48,70 @@ public class PlanService {
         LambdaQueryWrapper<ProdPlan> wrapper = new LambdaQueryWrapper<ProdPlan>()
                 .and(StringUtils.hasText(keyword), w -> w.like(ProdPlan::getPlanNo, keyword)
                         .or()
-                        .like(ProdPlan::getProductName, keyword))
-                .eq(StringUtils.hasText(status), ProdPlan::getStatus, status)
-                .orderByDesc(ProdPlan::getPlanDate)
+                        .like(ProdPlan::getProductName, keyword));
+        if (StringUtils.hasText(status)) {
+            if ("done".equals(status)) {
+                wrapper.in(ProdPlan::getStatus, List.of("done", "completed"));
+            } else {
+                wrapper.eq(ProdPlan::getStatus, status);
+            }
+        }
+        wrapper.orderByDesc(ProdPlan::getPlanDate)
                 .orderByDesc(ProdPlan::getId);
         Page<ProdPlan> page = prodPlanMapper.selectPage(new Page<>(current, size), wrapper);
 
         List<Map<String, Object>> records = page.getRecords().stream().map(this::toView).toList();
         return pageResult(page.getTotal(), records);
+    }
+
+    public Map<String, Object> summary() {
+        List<ProdPlan> plans = prodPlanMapper.selectList(new LambdaQueryWrapper<ProdPlan>()
+                .orderByDesc(ProdPlan::getPlanDate)
+                .orderByDesc(ProdPlan::getId));
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("totalCount", plans.size());
+        summary.put("draftCount", plans.stream().filter(p -> "draft".equals(p.getStatus())).count());
+        summary.put("releasedCount", plans.stream().filter(p -> "released".equals(p.getStatus())).count());
+        summary.put("completedCount", plans.stream().filter(PlanService::isCompletedStatus).count());
+        summary.put("pausedCount", plans.stream().filter(p -> "paused".equals(p.getStatus())).count());
+        summary.put("plans", plans.stream().map(this::toBriefView).toList());
+        return summary;
+    }
+
+    public List<Map<String, Object>> listBriefByStatuses(List<String> statuses, int limit) {
+        if (statuses == null || statuses.isEmpty()) {
+            return List.of();
+        }
+        return prodPlanMapper.selectList(new LambdaQueryWrapper<ProdPlan>()
+                        .in(ProdPlan::getStatus, statuses)
+                        .orderByDesc(ProdPlan::getPlanDate)
+                        .orderByDesc(ProdPlan::getId)
+                        .last("limit " + Math.max(1, limit)))
+                .stream()
+                .map(this::toBriefView)
+                .toList();
+    }
+
+    public static boolean isCompletedStatus(ProdPlan plan) {
+        return plan != null && isCompletedStatus(plan.getStatus());
+    }
+
+    public static boolean isCompletedStatus(String status) {
+        return "done".equals(status) || "completed".equals(status);
+    }
+
+    public static String planStatusLabel(String status) {
+        if (status == null) {
+            return "未知";
+        }
+        return switch (status) {
+            case "draft" -> "草稿";
+            case "released" -> "已下发";
+            case "done", "completed" -> "已完成";
+            case "paused" -> "已暂停";
+            case "in_progress" -> "进行中";
+            default -> status;
+        };
     }
 
     public Map<String, Object> detail(Long id) {
@@ -91,7 +147,7 @@ public class PlanService {
     @Transactional
     public Map<String, Object> update(Long id, PlanSaveRequest request) {
         ProdPlan plan = getPlan(id);
-        if ("completed".equals(plan.getStatus())) {
+        if ("done".equals(plan.getStatus()) || "completed".equals(plan.getStatus())) {
             throw new BusinessException("已完成计划不允许修改");
         }
         applyProduct(plan, request.getProductId(), request.getProductName());
@@ -136,7 +192,7 @@ public class PlanService {
         result.put("workOrders", workOrders);
         result.put("hasBom", hasBom);
         if (!hasBom) {
-            result.put("bomWarning", "产品未配置 BOM，下发后无法预览理论用料");
+            result.put("bomWarning", "产品工艺路线未配置工序物料，下发后无法预览理论用料");
         }
         return result;
     }
@@ -246,6 +302,19 @@ public class PlanService {
         return plan;
     }
 
+    private Map<String, Object> toBriefView(ProdPlan plan) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("id", plan.getId());
+        view.put("planNo", plan.getPlanNo());
+        view.put("productName", plan.getProductName());
+        view.put("planQty", plan.getPlanQty());
+        view.put("planDate", plan.getPlanDate());
+        view.put("status", plan.getStatus());
+        view.put("statusLabel", planStatusLabel(plan.getStatus()));
+        view.put("releaseTime", plan.getReleaseTime());
+        return view;
+    }
+
     private Map<String, Object> toView(ProdPlan plan) {
         SysUser creator = plan.getCreatedBy() == null ? null : sysUserMapper.selectById(plan.getCreatedBy());
         long workOrderCount = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
@@ -311,6 +380,9 @@ public class PlanService {
             return "draft";
         }
         if ("done".equals(plan.getStatus())) {
+            return "done";
+        }
+        if ("completed".equals(plan.getStatus())) {
             return "done";
         }
         if (orders.isEmpty()) {

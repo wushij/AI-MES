@@ -3,25 +3,19 @@ package com.aimes.service;
 import com.aimes.common.BusinessException;
 import com.aimes.dto.Requests.BomSaveRequest;
 import com.aimes.dto.Requests.ProductSaveRequest;
-import com.aimes.entity.MatMaterial;
-import com.aimes.entity.MdmBom;
-import com.aimes.entity.MdmBomItem;
+import com.aimes.entity.InvTransaction;
 import com.aimes.entity.MdmProduct;
-import com.aimes.mapper.MatMaterialMapper;
-import com.aimes.mapper.MdmBomItemMapper;
-import com.aimes.mapper.MdmBomMapper;
+import com.aimes.mapper.InvTransactionMapper;
 import com.aimes.mapper.MdmProductMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,15 +23,24 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
-@RequiredArgsConstructor
 public class ProductService {
 
     private static final Pattern PRODUCT_CODE_PATTERN = Pattern.compile("^PRD-(\\d+)$");
 
     private final MdmProductMapper mdmProductMapper;
-    private final MdmBomMapper mdmBomMapper;
-    private final MdmBomItemMapper mdmBomItemMapper;
-    private final MatMaterialMapper matMaterialMapper;
+    private final InvTransactionMapper invTransactionMapper;
+    private final AuthService authService;
+    private final ProcessRouteService processRouteService;
+
+    public ProductService(MdmProductMapper mdmProductMapper,
+                          InvTransactionMapper invTransactionMapper,
+                          AuthService authService,
+                          @Lazy ProcessRouteService processRouteService) {
+        this.mdmProductMapper = mdmProductMapper;
+        this.invTransactionMapper = invTransactionMapper;
+        this.authService = authService;
+        this.processRouteService = processRouteService;
+    }
 
     public Map<String, Object> list(long current, long size, String keyword, String status) {
         LambdaQueryWrapper<MdmProduct> wrapper = new LambdaQueryWrapper<MdmProduct>()
@@ -49,6 +52,33 @@ public class ProductService {
         Page<MdmProduct> page = mdmProductMapper.selectPage(new Page<>(current, size), wrapper);
         List<Map<String, Object>> records = page.getRecords().stream().map(this::toView).toList();
         return Map.of("total", page.getTotal(), "records", records);
+    }
+
+    public Map<String, Object> summary() {
+        List<MdmProduct> products = mdmProductMapper.selectList(new LambdaQueryWrapper<MdmProduct>()
+                .orderByAsc(MdmProduct::getProductCode));
+        BigDecimal totalStock = products.stream()
+                .map(p -> p.getStockQty() != null ? p.getStockQty() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("totalCount", products.size());
+        summary.put("activeCount", products.stream().filter(p -> "active".equals(p.getStatus())).count());
+        summary.put("inactiveCount", products.stream().filter(p -> "inactive".equals(p.getStatus())).count());
+        summary.put("totalStockQty", totalStock);
+        summary.put("withBomCount", products.stream().filter(p -> hasActiveBom(p.getId())).count());
+        summary.put("products", products.stream().map(this::toBriefView).toList());
+        return summary;
+    }
+
+    public static String productStatusLabel(String status) {
+        if (status == null) {
+            return "未知";
+        }
+        return switch (status) {
+            case "active" -> "启用";
+            case "inactive" -> "停用";
+            default -> status;
+        };
     }
 
     public Map<String, Object> detail(Long id) {
@@ -87,6 +117,7 @@ public class ProductService {
         product.setProductName(request.getProductName().trim());
         product.setSpec(request.getSpec());
         product.setUnit(StringUtils.hasText(request.getUnit()) ? request.getUnit().trim() : "件");
+        product.setStockQty(BigDecimal.ZERO);
         product.setStatus(StringUtils.hasText(request.getStatus()) ? request.getStatus() : "active");
         product.setRemark(request.getRemark());
         product.setCreatedTime(LocalDateTime.now());
@@ -126,68 +157,18 @@ public class ProductService {
     @Transactional
     public Map<String, Object> saveBom(Long productId, BomSaveRequest request) {
         requireProduct(productId);
-        MdmBom bom = mdmBomMapper.selectOne(new LambdaQueryWrapper<MdmBom>()
-                .eq(MdmBom::getProductId, productId)
-                .eq(MdmBom::getIsDefault, 1)
-                .last("limit 1"));
-        if (bom == null) {
-            bom = new MdmBom();
-            bom.setProductId(productId);
-            bom.setVersion(StringUtils.hasText(request.getVersion()) ? request.getVersion() : "V1.0");
-            bom.setStatus("active");
-            bom.setIsDefault(1);
-            bom.setRemark(request.getRemark());
-            bom.setCreatedTime(LocalDateTime.now());
-            bom.setUpdatedTime(LocalDateTime.now());
-            mdmBomMapper.insert(bom);
-        } else {
-            if (StringUtils.hasText(request.getVersion())) {
-                bom.setVersion(request.getVersion());
-            }
-            bom.setRemark(request.getRemark());
-            bom.setUpdatedTime(LocalDateTime.now());
-            mdmBomMapper.updateById(bom);
-        }
-
-        mdmBomItemMapper.delete(new LambdaQueryWrapper<MdmBomItem>().eq(MdmBomItem::getBomId, bom.getId()));
-        if (request.getItems() != null) {
-            for (BomSaveRequest.BomItemRequest item : request.getItems()) {
-                if (item.getMaterialId() == null) {
-                    continue;
-                }
-                MatMaterial material = matMaterialMapper.selectById(item.getMaterialId());
-                if (material == null) {
-                    throw new BusinessException("物料不存在: " + item.getMaterialId());
-                }
-                MdmBomItem row = new MdmBomItem();
-                row.setBomId(bom.getId());
-                row.setMaterialId(item.getMaterialId());
-                row.setQty(item.getQty() == null ? BigDecimal.ONE : BigDecimal.valueOf(item.getQty()));
-                row.setUnit(StringUtils.hasText(item.getUnit()) ? item.getUnit() : material.getUnit());
-                row.setLossRate(item.getLossRate() == null ? BigDecimal.ZERO : BigDecimal.valueOf(item.getLossRate()));
-                row.setRemark(item.getRemark());
-                row.setCreatedTime(LocalDateTime.now());
-                row.setUpdatedTime(LocalDateTime.now());
-                mdmBomItemMapper.insert(row);
-            }
-        }
-        return getBomView(productId);
+        throw new BusinessException("产品 BOM 由工艺路线工序物料自动汇总，请在「工艺管理」中维护各工序物料");
     }
 
     public boolean hasActiveBom(Long productId) {
         if (productId == null) {
             return false;
         }
-        MdmBom bom = mdmBomMapper.selectOne(new LambdaQueryWrapper<MdmBom>()
-                .eq(MdmBom::getProductId, productId)
-                .eq(MdmBom::getStatus, "active")
-                .eq(MdmBom::getIsDefault, 1)
-                .last("limit 1"));
-        if (bom == null) {
+        MdmProduct product = mdmProductMapper.selectById(productId);
+        if (product == null) {
             return false;
         }
-        return mdmBomItemMapper.selectCount(new LambdaQueryWrapper<MdmBomItem>()
-                .eq(MdmBomItem::getBomId, bom.getId())) > 0;
+        return processRouteService.hasRoutingMaterials(productId, product.getProductName());
     }
 
     public MdmProduct findByName(String productName) {
@@ -206,63 +187,102 @@ public class ProductService {
         return toView(requireProduct(productId));
     }
 
-    /** 按工单数量计算 BOM 理论用量 */
+    /** 按生产数量计算理论用料（工艺工序物料汇总 × 数量） */
     public List<Map<String, Object>> computeBomDemand(Long productId, int orderQty) {
         if (productId == null || orderQty <= 0) {
             return List.of();
         }
-        Map<String, Object> bom = getBomView(productId);
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> items = (List<Map<String, Object>>) bom.getOrDefault("items", List.of());
-        List<Map<String, Object>> demand = new ArrayList<>();
-        for (Map<String, Object> item : items) {
-            BigDecimal unitQty = item.get("qty") == null ? BigDecimal.ZERO : new BigDecimal(item.get("qty").toString());
-            BigDecimal lossRate = item.get("lossRate") == null ? BigDecimal.ZERO : new BigDecimal(item.get("lossRate").toString());
-            BigDecimal multiplier = BigDecimal.ONE.add(lossRate.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP));
-            BigDecimal requiredQty = unitQty.multiply(BigDecimal.valueOf(orderQty)).multiply(multiplier)
-                    .setScale(4, RoundingMode.HALF_UP);
-            Map<String, Object> row = new LinkedHashMap<>(item);
-            row.put("unitQty", unitQty);
-            row.put("orderQty", orderQty);
-            row.put("requiredQty", requiredQty);
-            demand.add(row);
+        MdmProduct product = mdmProductMapper.selectById(productId);
+        if (product == null) {
+            return List.of();
         }
-        return demand;
+        var ctx = processRouteService.resolveRouting(productId, product.getProductName());
+        if (ctx.routing() == null) {
+            return List.of();
+        }
+        return processRouteService.computeRoutingMaterialDemand(ctx.routing().getId(), orderQty);
+    }
+
+    /** 工单完工成品入库（同一工单仅入库一次） */
+    @Transactional
+    public void receiveFromWorkOrder(Long workOrderId, Long productId, int qty, String orderNo) {
+        if (workOrderId == null || productId == null || qty <= 0) {
+            return;
+        }
+        if (hasProductReceiveForWorkOrder(workOrderId)) {
+            return;
+        }
+        MdmProduct product = requireProduct(productId);
+        BigDecimal receiveQty = BigDecimal.valueOf(qty);
+        BigDecimal beforeQty = product.getStockQty() != null ? product.getStockQty() : BigDecimal.ZERO;
+        BigDecimal afterQty = beforeQty.add(receiveQty);
+        product.setStockQty(afterQty);
+        product.setUpdatedTime(LocalDateTime.now());
+        mdmProductMapper.updateById(product);
+
+        String woLabel = StringUtils.hasText(orderNo) ? orderNo : String.valueOf(workOrderId);
+        recordProductTransaction(productId, "in", receiveQty, beforeQty, afterQty, "work_order", workOrderId,
+                "工单完工入库：工单 " + woLabel + "，入库 " + qty + " 件");
+    }
+
+    public List<Map<String, Object>> listTransactions(Long productId) {
+        requireProduct(productId);
+        return invTransactionMapper.selectList(new LambdaQueryWrapper<InvTransaction>()
+                        .eq(InvTransaction::getProductId, productId)
+                        .orderByDesc(InvTransaction::getCreatedTime)
+                        .orderByDesc(InvTransaction::getId))
+                .stream()
+                .map(this::transactionToView)
+                .toList();
+    }
+
+    private boolean hasProductReceiveForWorkOrder(Long workOrderId) {
+        return invTransactionMapper.selectCount(new LambdaQueryWrapper<InvTransaction>()
+                .eq(InvTransaction::getRefType, "work_order")
+                .eq(InvTransaction::getRefId, workOrderId)
+                .eq(InvTransaction::getTxnType, "in")
+                .isNotNull(InvTransaction::getProductId)) > 0;
+    }
+
+    private void recordProductTransaction(Long productId, String txnType, BigDecimal qty,
+                                          BigDecimal beforeQty, BigDecimal afterQty,
+                                          String refType, Long refId, String remark) {
+        InvTransaction txn = new InvTransaction();
+        txn.setProductId(productId);
+        txn.setTxnType(txnType);
+        txn.setQty(qty);
+        txn.setBeforeQty(beforeQty);
+        txn.setAfterQty(afterQty);
+        txn.setRefType(refType);
+        txn.setRefId(refId);
+        txn.setOperatorId(authService.currentUser().getId());
+        txn.setRemark(remark);
+        txn.setCreatedTime(LocalDateTime.now());
+        invTransactionMapper.insert(txn);
+    }
+
+    private Map<String, Object> transactionToView(InvTransaction txn) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", txn.getId());
+        row.put("productId", txn.getProductId());
+        row.put("txnType", txn.getTxnType());
+        row.put("qty", txn.getQty());
+        row.put("beforeQty", txn.getBeforeQty());
+        row.put("afterQty", txn.getAfterQty());
+        row.put("refType", txn.getRefType());
+        row.put("refId", txn.getRefId());
+        row.put("operatorId", txn.getOperatorId());
+        row.put("remark", txn.getRemark());
+        row.put("createdTime", txn.getCreatedTime());
+        return row;
     }
 
     private Map<String, Object> getBomView(Long productId) {
-        MdmBom bom = mdmBomMapper.selectOne(new LambdaQueryWrapper<MdmBom>()
-                .eq(MdmBom::getProductId, productId)
-                .eq(MdmBom::getIsDefault, 1)
-                .last("limit 1"));
-        if (bom == null) {
-            return Map.of("items", List.of());
+        MdmProduct product = mdmProductMapper.selectById(productId);
+        if (product == null) {
+            return Map.of("items", List.of(), "details", List.of(), "source", "routing", "editable", false);
         }
-        List<MdmBomItem> items = mdmBomItemMapper.selectList(new LambdaQueryWrapper<MdmBomItem>()
-                .eq(MdmBomItem::getBomId, bom.getId())
-                .orderByAsc(MdmBomItem::getId));
-        List<Map<String, Object>> itemViews = new ArrayList<>();
-        for (MdmBomItem item : items) {
-            MatMaterial material = matMaterialMapper.selectById(item.getMaterialId());
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("id", item.getId());
-            row.put("materialId", item.getMaterialId());
-            row.put("materialCode", material == null ? null : material.getMaterialCode());
-            row.put("materialName", material == null ? null : material.getMaterialName());
-            row.put("qty", item.getQty());
-            row.put("unit", item.getUnit());
-            row.put("lossRate", item.getLossRate());
-            row.put("remark", item.getRemark());
-            itemViews.add(row);
-        }
-        Map<String, Object> view = new LinkedHashMap<>();
-        view.put("id", bom.getId());
-        view.put("productId", bom.getProductId());
-        view.put("version", bom.getVersion());
-        view.put("status", bom.getStatus());
-        view.put("remark", bom.getRemark());
-        view.put("items", itemViews);
-        return view;
+        return processRouteService.buildProductBomView(productId, product.getProductName());
     }
 
     private MdmProduct requireProduct(Long id) {
@@ -273,6 +293,20 @@ public class ProductService {
         return product;
     }
 
+    private Map<String, Object> toBriefView(MdmProduct product) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", product.getId());
+        row.put("productCode", product.getProductCode());
+        row.put("productName", product.getProductName());
+        row.put("spec", product.getSpec());
+        row.put("unit", product.getUnit() == null ? "件" : product.getUnit());
+        row.put("stockQty", product.getStockQty() != null ? product.getStockQty() : BigDecimal.ZERO);
+        row.put("status", product.getStatus());
+        row.put("statusLabel", productStatusLabel(product.getStatus()));
+        row.put("hasBom", hasActiveBom(product.getId()));
+        return row;
+    }
+
     private Map<String, Object> toView(MdmProduct product) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", product.getId());
@@ -280,6 +314,7 @@ public class ProductService {
         row.put("productName", product.getProductName());
         row.put("spec", product.getSpec());
         row.put("unit", product.getUnit());
+        row.put("stockQty", product.getStockQty() != null ? product.getStockQty() : BigDecimal.ZERO);
         row.put("status", product.getStatus());
         row.put("remark", product.getRemark());
         row.put("hasBom", hasActiveBom(product.getId()));

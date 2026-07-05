@@ -153,7 +153,8 @@ CREATE TABLE prod_process_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
     work_order_id BIGINT NOT NULL COMMENT '工单ID',
     operation_id BIGINT NULL COMMENT '工序主数据ID',
-    device_id BIGINT NULL COMMENT '报工使用设备',
+    device_id BIGINT NULL COMMENT '报工主设备（兼容）',
+    device_ids VARCHAR(255) NULL COMMENT '报工使用设备ID列表，逗号分隔',
     process_name VARCHAR(50) NOT NULL COMMENT '工序名称',
     seq_no INT NOT NULL COMMENT '工序序号',
     status VARCHAR(20) NOT NULL COMMENT '状态：waiting/running/done',
@@ -212,6 +213,7 @@ CREATE TABLE mdm_product (
     product_name VARCHAR(100) NOT NULL COMMENT '产品名称',
     spec VARCHAR(100) NULL COMMENT '规格型号',
     unit VARCHAR(10) NOT NULL DEFAULT '件' COMMENT '单位',
+    stock_qty DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '成品库存',
     status VARCHAR(16) NOT NULL DEFAULT 'active' COMMENT '状态：active/inactive',
     remark VARCHAR(255) NULL COMMENT '备注',
     created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -255,7 +257,8 @@ CREATE TABLE mdm_bom_item (
 -- 库存事务流水
 CREATE TABLE inv_transaction (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
-    material_id BIGINT NOT NULL COMMENT '物料ID',
+    material_id BIGINT NULL COMMENT '物料ID（物料流水时填写）',
+    product_id BIGINT NULL COMMENT '产品ID（成品流水时填写）',
     txn_type VARCHAR(16) NOT NULL COMMENT '类型：in/out/pick/return/adjust',
     qty DECIMAL(10,2) NOT NULL COMMENT '变动数量（正数）',
     before_qty DECIMAL(10,2) NOT NULL COMMENT '变动前库存',
@@ -266,9 +269,11 @@ CREATE TABLE inv_transaction (
     remark VARCHAR(255) NULL COMMENT '备注',
     created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     KEY idx_inv_txn_material (material_id),
+    KEY idx_inv_txn_product (product_id),
     KEY idx_inv_txn_time (created_time),
     KEY idx_inv_txn_type (txn_type),
-    CONSTRAINT fk_inv_txn_material FOREIGN KEY (material_id) REFERENCES mat_material(id) ON DELETE CASCADE
+    CONSTRAINT fk_inv_txn_material FOREIGN KEY (material_id) REFERENCES mat_material(id) ON DELETE CASCADE,
+    CONSTRAINT fk_inv_txn_product FOREIGN KEY (product_id) REFERENCES mdm_product(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存事务流水';
 
 -- 检验计划（按工序）

@@ -96,7 +96,7 @@ const router = createRouter({
           path: 'materials',
           name: 'materials',
           component: () => import('@/views/Materials.vue'),
-          meta: { title: '物料预警', permission: '物料' }
+          meta: { title: '物料管理', permission: '物料' }
         },
         {
           path: 'ai-chat',

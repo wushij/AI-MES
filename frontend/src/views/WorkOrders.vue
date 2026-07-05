@@ -109,13 +109,16 @@
         <el-form-item label="产品" prop="productId">
           <ProductSelect v-model="createForm.productId" @change="onCreateProductChange" />
         </el-form-item>
-        <el-form-item label="工单数量" prop="orderQty">
+        <el-form-item label="生产数量" prop="orderQty">
           <el-input-number v-model="createForm.orderQty" :min="1" class="full-width" />
         </el-form-item>
-        <el-form-item label="当前工序" prop="processName">
-          <el-select v-model="createForm.processName" class="full-width">
-            <el-option v-for="name in processOptions" :key="name" :label="name" :value="name" />
+        <el-form-item label="起始工序" prop="processName">
+          <el-select v-model="createForm.processName" class="full-width" :disabled="!createProcessOptions.length">
+            <el-option v-for="name in createProcessOptions" :key="name" :label="name" :value="name" />
           </el-select>
+          <div v-if="createProcessHint" class="field-hint">{{ createProcessHint }}</div>
+          <div v-else-if="createForm.productId && !createProcessOptions.length" class="field-hint">该产品暂无已发布工艺路线</div>
+          <div v-else-if="createProcessOptions.length > 1" class="field-hint">前置工序将视为已完成，仅执行起始工序及之后步骤</div>
         </el-form-item>
         <el-form-item label="优先级" prop="priority">
           <el-select v-model="createForm.priority" class="full-width">
@@ -156,7 +159,7 @@
         <el-form-item label="产品" prop="productId">
           <ProductSelect v-model="editForm.productId" @change="onEditProductChange" />
         </el-form-item>
-        <el-form-item label="工单数量" prop="orderQty">
+        <el-form-item label="生产数量" prop="orderQty">
           <el-input-number v-model="editForm.orderQty" :min="1" class="full-width" />
         </el-form-item>
         <el-form-item label="当前工序" prop="processName">
@@ -319,23 +322,47 @@
               <el-slider
                 v-model="progressForm.progress"
                 :min="0"
-                :max="100"
+                :max="maxProgress"
                 class="custom-slider-bar"
               />
               <div class="progress-percent-badge">{{ progressForm.progress }}%</div>
             </div>
+            <div v-if="sortedProcessRecords.length" class="field-hint">
+              <template v-if="isLastProcess && pendingProcessCount <= 1">
+                当前为最后一道待执行工序，完成后请点击「完成最后一道工序并完工」
+              </template>
+              <template v-else>
+                当前工序未完成前，进度最高 {{ maxProgress }}%{{ nextProcessName ? `；完成后请点击「进入下一道：${nextProcessName}」` : '' }}
+              </template>
+            </div>
           </el-form-item>
 
           <el-form-item label="当前工序" prop="currentProcess">
-            <el-select v-model="progressForm.currentProcess" filterable placeholder="选择当前工序" class="custom-input full-width" @change="onProcessChange">
-              <el-option v-for="name in progressProcessOptions" :key="name" :label="name" :value="name" />
-            </el-select>
+            <el-input :model-value="progressForm.currentProcess" disabled class="custom-input full-width" />
           </el-form-item>
 
           <el-form-item v-if="allowedDevices.length" label="使用设备">
-            <el-select v-model="progressForm.deviceId" filterable clearable placeholder="选择工序允许的设备" class="custom-input full-width">
-              <el-option v-for="item in allowedDevices" :key="item.id" :label="`${item.deviceName} (${item.deviceCode})`" :value="item.id" />
+            <ProcessBoundDevices v-if="isDeviceSelectionLocked" :devices="lockedDevices" />
+            <el-select
+              v-else
+              v-model="progressForm.deviceIds"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="请选择本工序可用设备"
+              class="custom-input full-width device-select"
+            >
+              <el-option
+                v-for="item in allowedDevices"
+                :key="item.id"
+                :label="`${item.deviceName} (${item.deviceCode})`"
+                :value="normalizeDeviceId(item.id)!"
+              />
             </el-select>
+            <div v-if="!isDeviceSelectionLocked" class="field-hint">
+              按设备类别可选范围内设备，请确认实际使用设备
+            </div>
           </el-form-item>
 
           <el-form-item label="备注说明">
@@ -355,13 +382,26 @@
       <template #footer>
         <div class="dialog-footer-custom">
           <el-button class="btn-cancel" @click="progressDrawerVisible = false">关闭</el-button>
+          <el-button type="primary" plain :loading="submittingProgress" class="btn-submit" @click="submitProgress(false)">
+            保存进度
+          </el-button>
           <el-button
+            v-if="sortedProcessRecords.length && !isLastProcess"
             type="primary"
             :loading="submittingProgress"
             class="btn-submit"
-            @click="submitProgress"
+            @click="submitProgress(true)"
           >
-            提交进度
+            完成本工序，进入下一道{{ nextProcessName ? `：${nextProcessName}` : '' }}
+          </el-button>
+          <el-button
+            v-else-if="sortedProcessRecords.length && isLastProcess"
+            type="success"
+            :loading="submittingProgress"
+            class="btn-submit"
+            @click="submitProgress(true)"
+          >
+            完成最后一道工序并完工
           </el-button>
         </div>
       </template>
@@ -379,7 +419,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import type { FormInstance, FormRules } from 'element-plus'
 
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { TrendCharts } from '@element-plus/icons-vue'
 
 import { useRouter, useRoute } from 'vue-router'
@@ -392,8 +432,9 @@ import StatusTag from '@/components/common/StatusTag.vue'
 import ProductSelect from '@/components/common/ProductSelect.vue'
 
 import ProcessRecordTimeline, { type ProcessRecordItem } from '@/components/workorder/ProcessRecordTimeline.vue'
+import ProcessBoundDevices from '@/components/workorder/ProcessBoundDevices.vue'
 
-import { getProcessExecutionContext, getProcessOperationNames, type ProcessOperation } from '@/api/processRoutes'
+import { getProcessExecutionContext, getProcessOperationNames, resolveProcessRouteForProduct, type ProcessOperation } from '@/api/processRoutes'
 import { getDeviceOptions } from '@/api/devices'
 
 import { useUserStore } from '@/stores/user'
@@ -433,7 +474,12 @@ const teamOptions = ref<TeamOption[]>([])
 
 const processOptions = ref<string[]>(['备料', '装配', '检测', '包装'])
 
+const createProcessOptions = ref<string[]>([])
+const createProcessHint = ref('')
+
 const processRecords = ref<ProcessRecordItem[]>([])
+
+const progressOrderQty = ref(1)
 
 const executionOperations = ref<ProcessOperation[]>([])
 
@@ -443,15 +489,96 @@ const currentOperation = computed(() =>
   executionOperations.value.find((item) => item.operationName === progressForm.currentProcess)
 )
 
+const sortedProcessRecords = computed(() =>
+  [...processRecords.value].sort((a, b) => (Number(a.seqNo) || 0) - (Number(b.seqNo) || 0))
+)
+
+const currentProcessRecord = computed(() =>
+  sortedProcessRecords.value.find((item) => item.processName === progressForm.currentProcess)
+)
+
+const isLastProcess = computed(() => {
+  const records = sortedProcessRecords.value
+  const current = currentProcessRecord.value
+  if (!records.length || !current) return true
+  const currentSeq = Number(current.seqNo) || 0
+  const maxSeq = Math.max(...records.map((item) => Number(item.seqNo) || 0))
+  return currentSeq >= maxSeq
+})
+
+const maxProgress = computed(() => {
+  const records = sortedProcessRecords.value
+  if (!records.length) return 100
+  const total = records.length
+  const done = records.filter((item) => item.status === 'done').length
+  if (done >= total) return 100
+  return Math.min(99, Math.floor(((done + 1) * 100) / total) - 1)
+})
+
+const nextProcessName = computed(() => {
+  const current = currentProcessRecord.value
+  if (!current) return ''
+  const currentSeq = Number(current.seqNo) || 0
+  return (
+    sortedProcessRecords.value.find(
+      (item) => (Number(item.seqNo) || 0) > currentSeq && item.status !== 'done'
+    )?.processName ?? ''
+  )
+})
+
+const pendingProcessCount = computed(() =>
+  sortedProcessRecords.value.filter((item) => item.status !== 'done').length
+)
+
+const boundDeviceCount = computed(() => {
+  const op = currentOperation.value
+  if (!op?.devices?.length) return 0
+  return op.devices.filter((bind) => bind.bindType === 'device' && bind.deviceId).length
+})
+
+const isDeviceSelectionLocked = computed(() => boundDeviceCount.value > 0)
+
 const allowedDevices = computed(() => {
   const op = currentOperation.value
-  if (!op?.devices?.length) return []
-  const ids = new Set<number | string>()
+  if (!op?.devices?.length) return [] as Array<{ id: number | string; deviceName: string; deviceCode: string; categoryId?: number | string }>
+  const result = new Map<number | string, { id: number | string; deviceName: string; deviceCode: string; categoryId?: number | string }>()
+  const deviceIds = new Set<number | string>()
+  const categoryIds = new Set<number | string>()
   op.devices.forEach((bind) => {
-    if (bind.bindType === 'device' && bind.deviceId) ids.add(bind.deviceId)
+    if (bind.bindType === 'device') {
+      const id = normalizeDeviceId(bind.deviceId)
+      if (id == null) return
+      deviceIds.add(id)
+      result.set(id, {
+        id,
+        deviceName: bind.deviceName || bind.deviceCode || `设备${id}`,
+        deviceCode: bind.deviceCode || String(id)
+      })
+    } else if (bind.bindType === 'category') {
+      const id = normalizeDeviceId(bind.categoryId)
+      if (id != null) categoryIds.add(id)
+    }
   })
-  const categoryIds = op.devices.filter((b) => b.bindType === 'category').map((b) => b.categoryId)
-  return allDeviceOptions.value.filter((d) => ids.has(d.id) || (d.categoryId && categoryIds.includes(d.categoryId)))
+  allDeviceOptions.value.forEach((d) => {
+    const id = normalizeDeviceId(d.id)
+    if (id == null) return
+    const categoryId = normalizeDeviceId(d.categoryId)
+    if (deviceIds.has(id) || (categoryId != null && categoryIds.has(categoryId))) {
+      result.set(id, { id, deviceName: d.deviceName, deviceCode: d.deviceCode, categoryId: d.categoryId })
+    }
+  })
+  return Array.from(result.values())
+})
+
+const lockedDevices = computed(() => {
+  const op = currentOperation.value
+  if (!op?.devices?.length) return [] as Array<{ id: number | string; deviceName: string; deviceCode: string }>
+  const directIds = new Set(
+    op.devices
+      .filter((bind) => bind.bindType === 'device' && bind.deviceId)
+      .map((bind) => normalizeDeviceId(bind.deviceId)!)
+  )
+  return allowedDevices.value.filter((item) => directIds.has(normalizeDeviceId(item.id)!))
 })
 
 const progressProcessOptions = computed(() => {
@@ -538,6 +665,40 @@ const editForm = reactive<{
 function onCreateProductChange(payload: { productId?: number | string; productName: string }) {
   createForm.productId = payload.productId
   createForm.productName = payload.productName
+  void loadCreateProcessOptions(payload.productId, payload.productName)
+}
+
+async function loadCreateProcessOptions(productId?: number | string, productName?: string) {
+  createProcessOptions.value = []
+  createProcessHint.value = ''
+  if (productId == null || productId === '') return
+  try {
+    const resolved = await resolveProcessRouteForProduct(productId, productName)
+    const names = (resolved.operations ?? [])
+      .slice()
+      .sort((a, b) => (Number(a.seqNo) || 0) - (Number(b.seqNo) || 0))
+      .map((item) => item.operationName)
+      .filter(Boolean)
+    createProcessOptions.value = names
+    if (resolved.isDefault && names.length) {
+      createProcessHint.value = `未配置专用工艺，将使用通用路线「${resolved.routeName || '默认路线'}」`
+    }
+    if (names.length) {
+      createForm.processName = names[0]
+    }
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+function resolveProgressProcessName(orderProcessName: string) {
+  if (orderProcessName) {
+    const matched = processRecords.value.find(
+      (item) => item.processName === orderProcessName && item.status !== 'done'
+    )
+    if (matched) return matched.processName
+  }
+  return processRecords.value.find((item) => item.status !== 'done')?.processName ?? orderProcessName
 }
 
 function onEditProductChange(payload: { productId?: number | string; productName: string }) {
@@ -560,13 +721,19 @@ const hasSchedulingInfo = computed(() =>
   })
 )
 
-const progressForm = reactive({ progress: 0, currentProcess: '', remark: '', deviceId: undefined as number | string | undefined })
+const progressForm = reactive({
+  progress: 0,
+  currentProcess: '',
+  remark: '',
+  deviceId: undefined as number | string | undefined,
+  deviceIds: [] as Array<number | string>
+})
 
 const assignRules: FormRules = { teamId: [{ required: true, message: '请选择班组', trigger: 'change' }], priority: [{ required: true, message: '请选择优先级', trigger: 'change' }] }
 
 const createRules: FormRules = {
   productId: [{ required: true, message: '请选择产品', trigger: 'change' }],
-  orderQty: [{ required: true, message: '请输入数量', trigger: 'change' }],
+  orderQty: [{ required: true, message: '请输入生产数量', trigger: 'change' }],
   processName: [{ required: true, message: '请选择工序', trigger: 'change' }],
   priority: [{ required: true, message: '请选择优先级', trigger: 'change' }]
 }
@@ -593,14 +760,94 @@ async function loadDeviceOptions() {
   }
 }
 
-function resolveDeviceIdForProcess(processName: string) {
-  const record = processRecords.value.find((item) => item.processName === processName)
-  return record?.deviceId
+function normalizeDeviceId(id: number | string | undefined | null) {
+  if (id == null || id === '') return undefined
+  const num = Number(id)
+  return Number.isNaN(num) ? id : num
+}
+
+type ProcessRecordRaw = ProcessRecordItem & {
+  device_id?: number | string
+  deviceIds?: Array<number | string>
+  device_ids?: string
+}
+
+function parseDeviceIds(raw?: string | Array<number | string>) {
+  if (Array.isArray(raw)) {
+    return raw.map((id) => normalizeDeviceId(id)).filter((id): id is number | string => id != null)
+  }
+  if (!raw) return [] as Array<number | string>
+  return raw
+    .split(',')
+    .map((part) => normalizeDeviceId(part.trim()))
+    .filter((id): id is number | string => id != null)
+}
+
+function recordDeviceId(record?: ProcessRecordRaw) {
+  return normalizeDeviceId(record?.deviceId ?? record?.device_id)
+}
+
+function resolveDeviceIdsForProcess(processName: string) {
+  const matched = processRecords.value.filter((item) => item.processName === processName)
+  const withDevices = matched.find((item) => {
+    const raw = item as ProcessRecordRaw
+    const ids = raw.deviceIds?.length ? raw.deviceIds : parseDeviceIds(raw.device_ids)
+    return ids.length > 0 || recordDeviceId(raw) != null
+  })
+  const record = (withDevices ?? matched[0]) as ProcessRecordRaw | undefined
+  if (!record) return [] as Array<number | string>
+  if (record.deviceIds?.length) return record.deviceIds.map((id) => normalizeDeviceId(id)!).filter(Boolean)
+  const fromRaw = parseDeviceIds(record.device_ids)
+  if (fromRaw.length) return fromRaw
+  const single = recordDeviceId(record)
+  return single != null ? [single] : []
+}
+
+function resolveDefaultDeviceIds() {
+  const op = currentOperation.value
+  const directIds = (op?.devices ?? [])
+    .filter((bind) => bind.bindType === 'device' && bind.deviceId)
+    .map((bind) => normalizeDeviceId(bind.deviceId)!)
+    .filter((id) => allowedDevices.value.some((d) => normalizeDeviceId(d.id) === id))
+  if (directIds.length) return directIds
+  return allowedDevices.value.map((d) => normalizeDeviceId(d.id)!).filter(Boolean)
+}
+
+function syncProgressDeviceSelection() {
+  if (!allowedDevices.value.length) {
+    progressForm.deviceIds = []
+    progressForm.deviceId = undefined
+    return
+  }
+  if (isDeviceSelectionLocked.value) {
+    progressForm.deviceIds = lockedDevices.value.map((d) => normalizeDeviceId(d.id)!).filter(Boolean)
+    progressForm.deviceId = progressForm.deviceIds[0]
+    return
+  }
+  const saved = resolveDeviceIdsForProcess(progressForm.currentProcess)
+  const allowedSet = new Set(allowedDevices.value.map((d) => normalizeDeviceId(d.id)))
+  progressForm.deviceIds =
+    saved.length > 0
+      ? saved.filter((id) => allowedSet.has(id))
+      : resolveDefaultDeviceIds()
+  progressForm.deviceId = progressForm.deviceIds[0]
 }
 
 function onProcessChange() {
-  progressForm.deviceId = resolveDeviceIdForProcess(progressForm.currentProcess)
+  syncProgressDeviceSelection()
 }
+
+watch(allowedDevices, () => {
+  if (progressDrawerVisible.value) {
+    syncProgressDeviceSelection()
+  }
+})
+
+watch(maxProgress, (value) => {
+  if (progressForm.progress > value) {
+    progressForm.progress = value
+  }
+})
 
 async function loadProcessOptions() {
   try {
@@ -649,6 +896,8 @@ function handleFilterChange() {
 async function loadTeamOptions() { try { const { getTeams } = await import('@/api/teams'); const list = await getTeams(); teamOptions.value = (Array.isArray(list) ? list : []).map((item: any) => ({ id: Number(item.id), name: String(item.teamName ?? '--') })) } catch (error) { console.error(error) } }
 
 function openCreateDialog() {
+  createProcessOptions.value = []
+  createProcessHint.value = ''
   Object.assign(createForm, {
     productId: undefined,
     productName: '',
@@ -809,7 +1058,29 @@ async function submitAssign() {
   }
 }
 
-async function claimOrder(row: WorkOrderRow) { actionLoading.value = `claim-${row.id}`; try { const api = await import('@/api/workOrders'); await api.claimWorkOrder(row.id); ElMessage.success('工单已认领'); loadOrders() } catch (error) { console.error(error); ElMessage.error('认领失败') } finally { actionLoading.value = '' } }
+async function claimOrder(row: WorkOrderRow) {
+  try {
+    await ElMessageBox.confirm(
+      `确认认领工单「${row.code}」？认领后请通过「更新进度」开始首道工序，届时将按工序领料。`,
+      '确认认领',
+      { type: 'warning', confirmButtonText: '确认认领', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  actionLoading.value = `claim-${row.id}`
+  try {
+    const api = await import('@/api/workOrders')
+    await api.claimWorkOrder(row.id)
+    ElMessage.success('工单已认领，请更新进度开始首道工序')
+    loadOrders()
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('认领失败')
+  } finally {
+    actionLoading.value = ''
+  }
+}
 
 async function openProgressDrawer(row: WorkOrderRow) {
   currentOrder.value = row
@@ -820,14 +1091,25 @@ async function openProgressDrawer(row: WorkOrderRow) {
     progress: row.progress,
     currentProcess: row.currentProcess,
     remark: row.remark ?? '',
-    deviceId: undefined
+    deviceId: undefined,
+    deviceIds: []
   })
   progressDrawerVisible.value = true
   try {
+    if (!allDeviceOptions.value.length) {
+      await loadDeviceOptions()
+    }
     const api = await import('@/api/workOrders')
     const detail = (await api.getWorkOrderDetail(row.id)) as unknown as Record<string, unknown>
+    progressOrderQty.value = Number(detail.orderQty ?? 1)
     loadSchedulingInfo(detail)
-    processRecords.value = (detail.processRecords as ProcessRecordItem[] | undefined) ?? []
+    processRecords.value = ((detail.processRecords as ProcessRecordRaw[] | undefined) ?? []).map((item) => {
+      const deviceIds = Array.isArray(item.deviceIds)
+        ? item.deviceIds.map((id) => normalizeDeviceId(id)!).filter(Boolean)
+        : parseDeviceIds(item.device_ids)
+      const deviceId = recordDeviceId(item) ?? deviceIds[0]
+      return { ...item, deviceId, deviceIds }
+    })
     executionOperations.value = (detail.routingContext as { operations?: ProcessOperation[] } | undefined)?.operations ?? []
     if (!executionOperations.value.length) {
       try {
@@ -837,39 +1119,176 @@ async function openProgressDrawer(row: WorkOrderRow) {
         console.error(error)
       }
     }
-    onProcessChange()
+    const active = processRecords.value.find((item) => item.status !== 'done')
+    progressForm.currentProcess = resolveProgressProcessName(
+      String(detail.processName ?? row.currentProcess ?? active?.processName ?? '')
+    )
+    if (progressForm.progress > maxProgress.value) {
+      progressForm.progress = maxProgress.value
+    }
+    await nextTick()
+    syncProgressDeviceSelection()
   } catch (error) {
     console.error(error)
   }
 }
 
-async function submitProgress() {
+async function submitProgress(completeCurrentProcess = false) {
   const valid = await progressFormRef.value?.validate().catch(() => false)
   if (!valid || !currentOrder.value) return
+
+  if (currentProcessNotStarted()) {
+    const materials = currentOperation.value?.materials
+    if (materials && materials.length) {
+      const htmlContent = `
+        <div style="font-size: 14px; line-height: 1.5; color: #334155;">
+          <p style="margin: 0 0 10px 0; font-weight: 600; color: #1e293b;">本工序开工将领用以下物料：</p>
+          ${formatMaterialPickHtml(materials, progressOrderQty.value)}
+          <p style="margin: 14px 0 0 0; color: #d97706; font-weight: 600;">确认开工并继续？</p>
+        </div>
+      `
+      try {
+        await ElMessageBox.confirm(
+          htmlContent,
+          '工序开工领料确认',
+          {
+            type: 'warning',
+            confirmButtonText: '确认开工并领料',
+            cancelButtonText: '取消',
+            dangerouslyUseHTMLString: true
+          }
+        )
+      } catch {
+        return
+      }
+    }
+  }
+
+  if (completeCurrentProcess) {
+    let confirmTitle = isLastProcess.value ? '完工确认' : '转序确认'
+    let confirmBtnText = isLastProcess.value ? '确认完工' : '确认转序'
+    
+    let htmlContent = `
+      <div style="font-size: 14px; line-height: 1.5; color: #334155;">
+        <p style="margin: 0; font-weight: 600; color: #1e293b;">
+          ${isLastProcess.value ? '确认完成最后一道工序并整单完工？' : `确认完成「${progressForm.currentProcess}」并进入下一道「${nextProcessName.value}」？`}
+        </p>
+    `
+    
+    if (!isLastProcess.value && nextProcessName.value) {
+      const nextOp = executionOperations.value.find((item) => item.operationName === nextProcessName.value)
+      if (nextOp?.materials?.length) {
+        htmlContent += `
+          <p style="margin: 16px 0 8px 0; font-weight: 600; color: #475569;">下一道「${nextProcessName.value}」首次报工时将领用：</p>
+          ${formatMaterialPickHtml(nextOp.materials, progressOrderQty.value)}
+        `
+      }
+    }
+    
+    htmlContent += `</div>`
+
+    try {
+      await ElMessageBox.confirm(htmlContent, confirmTitle, {
+        type: 'warning',
+        confirmButtonText: confirmBtnText,
+        cancelButtonText: '取消',
+        dangerouslyUseHTMLString: true
+      })
+    } catch {
+      return
+    }
+  }
+
   submittingProgress.value = true
   try {
     const api = await import('@/api/workOrders')
     await api.updateWorkOrderProgress(currentOrder.value.id, {
       progress: progressForm.progress,
       processName: progressForm.currentProcess,
-      deviceId: progressForm.deviceId,
-      remark: progressForm.remark
+      deviceIds: allowedDevices.value.length
+        ? progressForm.deviceIds.map((id) => normalizeDeviceId(id)!).filter(Boolean)
+        : undefined,
+      deviceId: allowedDevices.value.length ? normalizeDeviceId(progressForm.deviceIds[0]) : undefined,
+      remark: progressForm.remark,
+      completeCurrentProcess
     })
-    ElMessage.success('进度已更新')
+    ElMessage.success(completeCurrentProcess ? (isLastProcess.value ? '工单已完工' : '本工序已完成，已进入下一道') : '进度已更新')
     progressDrawerVisible.value = false
     loadOrders()
-    if (progressForm.progress >= 100) void appStore.loadWorkshopSummary()
+    if (completeCurrentProcess && isLastProcess.value) void appStore.loadWorkshopSummary()
   } catch (error) {
     console.error(error)
-    ElMessage.error('更新进度失败')
+    const { resolveErrorMessage } = await import('@/api/request')
+    ElMessage.error(resolveErrorMessage(error, '更新进度失败'))
   } finally {
     submittingProgress.value = false
   }
 }
 
-async function completeOrder(row: WorkOrderRow) { await ElMessageBox.confirm(`确认将工单 ${row.code} 标记为完工？`, '确认完工', { type: 'warning' }); actionLoading.value = `complete-${row.id}`; try { const api = await import('@/api/workOrders'); await api.completeWorkOrder(row.id); ElMessage.success('工单已完工'); loadOrders(); void appStore.loadWorkshopSummary() } catch (error) { console.error(error); ElMessage.error('完工操作失败') } finally { actionLoading.value = '' } }
+async function completeOrder(row: WorkOrderRow) {
+  try {
+    await ElMessageBox.confirm(`确认将工单 ${row.code} 标记为完工？`, '确认完工', { type: 'warning' })
+  } catch {
+    return
+  }
+  actionLoading.value = `complete-${row.id}`
+  try {
+    const api = await import('@/api/workOrders')
+    await api.completeWorkOrder(row.id)
+    ElMessage.success('工单已完工')
+    loadOrders()
+    void appStore.loadWorkshopSummary()
+  } catch (error) {
+    console.error(error)
+    const { resolveErrorMessage } = await import('@/api/request')
+    ElMessage.error(resolveErrorMessage(error, '完工操作失败'))
+  } finally {
+    actionLoading.value = ''
+  }
+}
 
 function goToExceptions(row: WorkOrderRow) { router.push({ path: '/exceptions', query: { workOrderId: String(row.id), workOrderCode: row.code } }) }
+
+function currentProcessNotStarted() {
+  const record = processRecords.value.find((item) => item.processName === progressForm.currentProcess)
+  return !record?.startTime
+}
+
+function formatMaterialPickHtml(materials: ProcessOperation['materials'], prodQty = 1) {
+  if (!materials || !materials.length) return ''
+  let html = `
+    <div style="margin: 8px 0; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+      <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; background-color: #fff;">
+        <thead>
+          <tr style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+            <th style="padding: 6px 10px; color: #475569; font-weight: 600;">物料名称</th>
+            <th style="padding: 6px 10px; color: #475569; font-weight: 600; text-align: right;">单件用量</th>
+            <th style="padding: 6px 10px; color: #475569; font-weight: 600; text-align: right;">领用总数</th>
+          </tr>
+        </thead>
+        <tbody>
+  `
+  materials.forEach((mat) => {
+    const name = mat.materialName || String(mat.materialId)
+    const unitQty = Number(mat.qty) || 0
+    const total = unitQty * prodQty
+    const unit = mat.unit || '件'
+    
+    html += `
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 8px 10px; color: #1e293b; font-weight: 500;">${name}</td>
+            <td style="padding: 8px 10px; color: #64748b; text-align: right;">${unitQty} ${unit}/件</td>
+            <td style="padding: 8px 10px; color: #4f46e5; font-weight: 600; text-align: right;">${total} ${unit}</td>
+          </tr>
+    `
+  })
+  html += `
+        </tbody>
+      </table>
+    </div>
+  `
+  return html
+}
 
 async function removeOrder(row: WorkOrderRow) {
   const ok = await confirmDelete({
@@ -1317,6 +1736,22 @@ function loadSchedulingInfo(detail: Record<string, unknown>) {
 .btn-submit:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(79, 70, 229, 0.3) !important;
+}
+
+.field-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.field-hint--info {
+  color: #2563eb;
+}
+
+.device-select :deep(.el-select__wrapper) {
+  min-height: 42px;
+  border-radius: 10px;
 }
 
 </style>

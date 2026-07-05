@@ -7,11 +7,26 @@ export interface Product {
   productName: string
   spec?: string
   unit: string
+  stockQty?: number
   status: string
   remark?: string
   hasBom?: boolean
   createdTime?: string
   updatedTime?: string
+}
+
+export interface ProductTransaction {
+  id: number | string
+  productId?: number | string
+  txnType: string
+  qty: number
+  beforeQty: number
+  afterQty: number
+  refType?: string
+  refId?: number | string
+  operatorId?: number | string
+  remark?: string
+  createdTime?: string
 }
 
 export interface BomItem {
@@ -22,16 +37,37 @@ export interface BomItem {
   qty: number
   unit: string
   lossRate?: number
+  materialType?: string
+  operationNames?: string[]
+  operationNamesLabel?: string
   remark?: string
+}
+
+export interface BomDetailItem {
+  operationName?: string
+  operationCode?: string
+  seqNo?: number
+  materialId?: number | string
+  materialCode?: string
+  materialName?: string
+  qty?: number
+  unit?: string
+  materialType?: string
 }
 
 export interface ProductBom {
   id?: number | string
   productId?: number | string
+  routingId?: number | string
+  routeName?: string
+  routeCode?: string
   version?: string
+  source?: string
+  editable?: boolean
   status?: string
   remark?: string
   items: BomItem[]
+  details?: BomDetailItem[]
 }
 
 export interface ProductDetail extends Product {
@@ -64,6 +100,10 @@ export function deleteProduct(id: number | string) {
 
 export function getProductBom(id: number | string) {
   return request.get<ProductBom>(`/products/${id}/bom`).then((res) => res.data)
+}
+
+export function getProductTransactions(id: number | string) {
+  return request.get<ProductTransaction[]>(`/products/${id}/transactions`).then((res) => res.data)
 }
 
 export function saveProductBom(id: number | string, payload: Partial<ProductBom>) {

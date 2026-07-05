@@ -26,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -96,7 +98,7 @@ class WorkOrderServiceTest {
     }
 
     @Test
-    void claim_shouldMoveAssignedOrderToProducingAndStartFirstProcess() {
+    void claim_shouldMoveAssignedOrderToProducingWithoutStartingProcess() {
         ProdWorkOrder order = new ProdWorkOrder();
         order.setId(1L);
         order.setOrderNo("WO-002");
@@ -108,7 +110,7 @@ class WorkOrderServiceTest {
         first.setWorkOrderId(1L);
         first.setSeqNo(1);
         first.setProcessName("备料");
-        first.setStatus("pending");
+        first.setStatus("waiting");
 
         SysUser user = new SysUser();
         user.setId(5L);
@@ -116,17 +118,17 @@ class WorkOrderServiceTest {
 
         when(authService.currentUser()).thenReturn(user);
         when(prodWorkOrderMapper.selectById(1L)).thenReturn(order);
-        when(prodProcessRecordMapper.selectOne(any())).thenReturn(first);
+        when(prodProcessRecordMapper.selectList(any())).thenReturn(List.of(first));
         stubDetailQueries(order);
 
         Map<String, Object> result = workOrderService.claim(1L);
 
         assertEquals("producing", order.getStatus());
         assertEquals(5L, order.getClaimUserId());
-        assertEquals("running", first.getStatus());
+        assertEquals("waiting", first.getStatus());
         assertEquals("producing", result.get("status"));
         verify(prodWorkOrderMapper).updateById(order);
-        verify(prodProcessRecordMapper).updateById(first);
+        verify(prodProcessRecordMapper, never()).updateById(any(ProdProcessRecord.class));
     }
 
     @Test
@@ -143,6 +145,7 @@ class WorkOrderServiceTest {
 
         assertEquals("done", result.get("status"));
         verify(materialService, never()).pickForWorkOrder(anyLong(), anyLong(), anyInt(), any());
+        verify(productService, never()).receiveFromWorkOrder(anyLong(), anyLong(), anyInt(), any());
         verify(prodWorkOrderMapper, never()).updateById(order);
     }
 
@@ -157,6 +160,8 @@ class WorkOrderServiceTest {
         order.setOrderQty(1);
         when(prodWorkOrderMapper.selectById(2L)).thenReturn(order);
         when(aimesProperties.isBomPickOnComplete()).thenReturn(true);
+        when(materialService.hasPickActivity(eq(2L), anyCollection())).thenReturn(false);
+        when(processRouteService.resolveRouting(10L, null)).thenReturn(ProcessRouteService.RoutingContext.fallback());
         when(productService.hasActiveBom(10L)).thenReturn(true);
         when(productService.computeBomDemand(10L, 1)).thenReturn(List.of(Map.of("materialId", 1L, "requiredQty", 1)));
         stubDetailQueries(order);
@@ -164,7 +169,8 @@ class WorkOrderServiceTest {
         workOrderService.complete(2L);
 
         assertEquals("done", order.getStatus());
-        verify(materialService).pickForWorkOrder(2L, 10L, 1, List.of(Map.of("materialId", 1L, "requiredQty", 1)));
+        verify(materialService).pickForWorkOrder(2L, 10L, 1, List.of(Map.of("materialId", 1L, "requiredQty", 1)), "bom");
+        verify(productService).receiveFromWorkOrder(2L, 10L, 1, "WO-PROD");
         verify(prodWorkOrderMapper).updateById(order);
     }
 
@@ -175,3 +181,4 @@ class WorkOrderServiceTest {
         when(prodProcessRecordMapper.selectList(any())).thenReturn(List.of());
     }
 }
+

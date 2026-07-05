@@ -87,6 +87,34 @@ public class ProcessRouteService {
         return toRouteView(ctx.routing(), true);
     }
 
+    /** 按产品与后端工单相同的规则解析工艺（专用路线 → 产品名 → 通用默认路线） */
+    public Map<String, Object> resolveRouteForProduct(Long productId, String productName) {
+        RoutingContext ctx = resolveRouting(productId, productName);
+        Map<String, Object> view = new LinkedHashMap<>();
+        MdmRouting routing = ctx.routing();
+        if (routing != null) {
+            view.put("routingId", routing.getId());
+            view.put("routeName", routing.getRouteName());
+            view.put("routeCode", routing.getRouteCode());
+            view.put("isDefault", routing.getIsDefault() != null && routing.getIsDefault() == 1
+                    && routing.getProductId() == null);
+            view.put("productId", routing.getProductId());
+            view.put("productName", routing.getProductName());
+        } else {
+            view.put("isDefault", true);
+            view.put("routeName", "标准装配路线");
+        }
+        List<Map<String, Object>> operations = new ArrayList<>();
+        for (MdmOperation operation : ctx.operations()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("seqNo", operation.getSeqNo());
+            row.put("operationName", operation.getOperationName());
+            operations.add(row);
+        }
+        view.put("operations", operations);
+        return view;
+    }
+
     public List<Map<String, Object>> listRoutes() {
         return mdmRoutingMapper.selectList(new LambdaQueryWrapper<MdmRouting>()
                         .orderByDesc(MdmRouting::getIsDefault)
@@ -94,6 +122,58 @@ public class ProcessRouteService {
                 .stream()
                 .map(r -> toRouteView(r, false))
                 .toList();
+    }
+
+    public Map<String, Object> summary() {
+        List<MdmRouting> routes = mdmRoutingMapper.selectList(new LambdaQueryWrapper<MdmRouting>()
+                .orderByDesc(MdmRouting::getIsDefault)
+                .orderByAsc(MdmRouting::getId));
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("totalCount", routes.size());
+        summary.put("draftCount", routes.stream().filter(r -> "draft".equals(r.getStatus())).count());
+        summary.put("pendingApprovalCount", routes.stream().filter(r -> "pending_approval".equals(r.getStatus())).count());
+        summary.put("publishedCount", routes.stream().filter(r -> "published".equals(r.getStatus())).count());
+        summary.put("rejectedCount", routes.stream().filter(r -> "rejected".equals(r.getStatus())).count());
+        summary.put("disabledCount", routes.stream().filter(r -> "disabled".equals(r.getStatus())).count());
+        summary.put("routes", routes.stream().map(this::toBriefRouteView).toList());
+        return summary;
+    }
+
+    public Map<String, Object> operationSummary() {
+        List<MdmOperation> operations = mdmOperationMapper.selectList(new LambdaQueryWrapper<MdmOperation>()
+                .orderByAsc(MdmOperation::getRoutingId)
+                .orderByAsc(MdmOperation::getSeqNo));
+        List<Long> routingIds = operations.stream()
+                .map(MdmOperation::getRoutingId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, MdmRouting> routingMap = routingIds.isEmpty()
+                ? Map.of()
+                : mdmRoutingMapper.selectBatchIds(routingIds).stream()
+                .collect(Collectors.toMap(MdmRouting::getId, routing -> routing, (a, b) -> a));
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("totalCount", operations.size());
+        summary.put("routingCount", routingIds.size());
+        summary.put("operations", operations.stream()
+                .map(operation -> toBriefOperationView(operation, routingMap.get(operation.getRoutingId())))
+                .toList());
+        return summary;
+    }
+
+    public static String routeStatusLabel(String status) {
+        if (status == null) {
+            return "未知";
+        }
+        return switch (status) {
+            case "draft" -> "草稿";
+            case "pending_approval" -> "待审批";
+            case "published" -> "已发布";
+            case "rejected" -> "已驳回";
+            case "disabled" -> "已停用";
+            default -> status;
+        };
     }
 
     public Map<String, Object> getRoute(Long id) {
@@ -121,6 +201,162 @@ public class ProcessRouteService {
         }
         result.put("operations", operations);
         return result;
+    }
+
+    /** 按工艺路线工序物料汇总工单领料需求（同物料跨工序合并） */
+    public List<Map<String, Object>> computeRoutingMaterialDemand(Long routingId, int orderQty) {
+        if (routingId == null || orderQty <= 0) {
+            return List.of();
+        }
+        RoutingContext ctx = loadRoutingContext(routingId);
+        if (ctx.routing() == null) {
+            return List.of();
+        }
+        Map<Long, java.math.BigDecimal> aggregated = new LinkedHashMap<>();
+        Map<Long, Map<String, Object>> meta = new LinkedHashMap<>();
+        for (MdmOperation operation : ctx.operations()) {
+            if (operation.getId() == null) {
+                continue;
+            }
+            for (Map<String, Object> bind : listMaterialBindings(operation.getId())) {
+                Object materialIdObj = bind.get("materialId");
+                if (materialIdObj == null) {
+                    continue;
+                }
+                Long materialId = ((Number) materialIdObj).longValue();
+                java.math.BigDecimal unitQty = bind.get("qty") == null
+                        ? java.math.BigDecimal.ZERO
+                        : new java.math.BigDecimal(bind.get("qty").toString());
+                java.math.BigDecimal requiredQty = unitQty.multiply(java.math.BigDecimal.valueOf(orderQty));
+                aggregated.merge(materialId, requiredQty, java.math.BigDecimal::add);
+                meta.putIfAbsent(materialId, bind);
+            }
+        }
+        List<Map<String, Object>> demand = new ArrayList<>();
+        for (Map.Entry<Long, java.math.BigDecimal> entry : aggregated.entrySet()) {
+            Map<String, Object> row = new LinkedHashMap<>(meta.get(entry.getKey()));
+            row.put("materialId", entry.getKey());
+            row.put("orderQty", orderQty);
+            row.put("requiredQty", entry.getValue());
+            demand.add(row);
+        }
+        return demand;
+    }
+
+    /** 产品 BOM 视图：由已发布工艺路线各工序物料自动汇总（只读） */
+    public Map<String, Object> buildProductBomView(Long productId, String productName) {
+        RoutingContext ctx = resolveRouting(productId, productName);
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("source", "routing");
+        view.put("editable", false);
+        if (ctx.routing() == null) {
+            view.put("items", List.of());
+            view.put("details", List.of());
+            view.put("remark", "未找到已发布工艺路线，请先在工艺管理中配置并发布");
+            return view;
+        }
+        MdmRouting routing = ctx.routing();
+        view.put("routingId", routing.getId());
+        view.put("routeName", routing.getRouteName());
+        view.put("routeCode", routing.getRouteCode());
+        view.put("version", routing.getVersion());
+        view.put("remark", "由工艺路线「" + routing.getRouteName() + "」工序物料自动汇总，请在工艺管理中维护");
+
+        Map<Long, BigDecimal> qtyByMaterial = new LinkedHashMap<>();
+        Map<Long, Map<String, Object>> metaByMaterial = new LinkedHashMap<>();
+        Map<Long, java.util.LinkedHashSet<String>> opsByMaterial = new LinkedHashMap<>();
+        List<Map<String, Object>> details = new ArrayList<>();
+
+        for (MdmOperation operation : ctx.operations()) {
+            if (operation.getId() == null) {
+                continue;
+            }
+            String operationName = operation.getOperationName();
+            for (Map<String, Object> bind : listMaterialBindings(operation.getId())) {
+                Object materialIdObj = bind.get("materialId");
+                if (materialIdObj == null) {
+                    continue;
+                }
+                Long materialId = ((Number) materialIdObj).longValue();
+                BigDecimal unitQty = bind.get("qty") == null
+                        ? BigDecimal.ZERO
+                        : new BigDecimal(bind.get("qty").toString());
+                if (unitQty.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+                qtyByMaterial.merge(materialId, unitQty, BigDecimal::add);
+                metaByMaterial.putIfAbsent(materialId, bind);
+                opsByMaterial.computeIfAbsent(materialId, key -> new java.util.LinkedHashSet<>()).add(operationName);
+
+                Map<String, Object> detail = new LinkedHashMap<>();
+                detail.put("operationName", operationName);
+                detail.put("operationCode", operation.getOperationCode());
+                detail.put("seqNo", operation.getSeqNo());
+                detail.put("materialId", materialId);
+                detail.put("materialCode", bind.get("materialCode"));
+                detail.put("materialName", bind.get("materialName"));
+                detail.put("qty", unitQty);
+                detail.put("unit", bind.get("unit"));
+                detail.put("materialType", bind.get("materialType"));
+                details.add(detail);
+            }
+        }
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Map.Entry<Long, BigDecimal> entry : qtyByMaterial.entrySet()) {
+            Long materialId = entry.getKey();
+            Map<String, Object> bind = metaByMaterial.get(materialId);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("materialId", materialId);
+            row.put("materialCode", bind.get("materialCode"));
+            row.put("materialName", bind.get("materialName"));
+            row.put("qty", entry.getValue());
+            row.put("unit", bind.get("unit"));
+            row.put("materialType", bind.get("materialType"));
+            row.put("lossRate", BigDecimal.ZERO);
+            java.util.LinkedHashSet<String> ops = opsByMaterial.get(materialId);
+            row.put("operationNames", ops == null ? List.of() : List.copyOf(ops));
+            row.put("operationNamesLabel", ops == null ? "" : String.join("、", ops));
+            items.add(row);
+        }
+        view.put("items", items);
+        view.put("details", details);
+        return view;
+    }
+
+    public boolean hasRoutingMaterials(Long productId, String productName) {
+        Map<String, Object> bom = buildProductBomView(productId, productName);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) bom.getOrDefault("items", List.of());
+        return !items.isEmpty();
+    }
+
+    /** 单道工序物料需求（工序用量 × 生产数量） */
+    public List<Map<String, Object>> computeOperationMaterialDemand(Long operationId, int orderQty) {
+        if (operationId == null || orderQty <= 0) {
+            return List.of();
+        }
+        List<Map<String, Object>> demand = new ArrayList<>();
+        for (Map<String, Object> bind : listMaterialBindings(operationId)) {
+            Object materialIdObj = bind.get("materialId");
+            if (materialIdObj == null) {
+                continue;
+            }
+            Long materialId = ((Number) materialIdObj).longValue();
+            java.math.BigDecimal unitQty = bind.get("qty") == null
+                    ? java.math.BigDecimal.ZERO
+                    : new java.math.BigDecimal(bind.get("qty").toString());
+            java.math.BigDecimal requiredQty = unitQty.multiply(java.math.BigDecimal.valueOf(orderQty));
+            if (requiredQty.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>(bind);
+            row.put("materialId", materialId);
+            row.put("orderQty", orderQty);
+            row.put("requiredQty", requiredQty);
+            demand.add(row);
+        }
+        return demand;
     }
 
     @Transactional
@@ -374,31 +610,54 @@ public class ProcessRouteService {
         return sop;
     }
 
+    public boolean hasDeviceBindings(Long operationId) {
+        if (operationId == null) {
+            return false;
+        }
+        return mdmOperationDeviceMapper.selectCount(new LambdaQueryWrapper<MdmOperationDevice>()
+                .eq(MdmOperationDevice::getOperationId, operationId)) > 0;
+    }
+
     public void validateDeviceForOperation(Long operationId, Long deviceId) {
-        if (operationId == null || deviceId == null) {
+        if (deviceId == null) {
             return;
+        }
+        validateDevicesForOperation(operationId, List.of(deviceId));
+    }
+
+    public void validateDevicesForOperation(Long operationId, List<Long> deviceIds) {
+        if (deviceIds == null || deviceIds.isEmpty()) {
+            return;
+        }
+        if (operationId == null) {
+            throw new BusinessException("当前工序未关联工艺配置，不能绑定设备");
         }
         List<MdmOperationDevice> bindings = mdmOperationDeviceMapper.selectList(new LambdaQueryWrapper<MdmOperationDevice>()
                 .eq(MdmOperationDevice::getOperationId, operationId));
         if (bindings.isEmpty()) {
-            return;
+            throw new BusinessException("当前工序未配置可用设备");
         }
-        DevDevice device = devDeviceMapper.selectById(deviceId);
-        if (device == null) {
-            throw new BusinessException("设备不存在");
-        }
-        if ("scrapped".equals(device.getStatus())) {
-            throw new BusinessException("设备已报废，不可用于生产");
-        }
-        boolean allowed = bindings.stream().anyMatch(bind -> {
-            if ("device".equals(bind.getBindType()) && deviceId.equals(bind.getDeviceId())) {
-                return true;
+        for (Long deviceId : deviceIds) {
+            if (deviceId == null) {
+                continue;
             }
-            return "category".equals(bind.getBindType()) && bind.getCategoryId() != null
-                    && bind.getCategoryId().equals(device.getCategoryId());
-        });
-        if (!allowed) {
-            throw new BusinessException("当前设备不在工序允许的设备范围内");
+            DevDevice device = devDeviceMapper.selectById(deviceId);
+            if (device == null) {
+                throw new BusinessException("设备不存在");
+            }
+            if ("scrapped".equals(device.getStatus())) {
+                throw new BusinessException("设备已报废，不可用于生产");
+            }
+            boolean allowed = bindings.stream().anyMatch(bind -> {
+                if ("device".equals(bind.getBindType()) && deviceId.equals(bind.getDeviceId())) {
+                    return true;
+                }
+                return "category".equals(bind.getBindType()) && bind.getCategoryId() != null
+                        && bind.getCategoryId().equals(device.getCategoryId());
+            });
+            if (!allowed) {
+                throw new BusinessException("设备「" + device.getDeviceName() + "」不在工序允许的设备范围内");
+            }
         }
     }
 
@@ -411,7 +670,7 @@ public class ProcessRouteService {
         }
         order.setEstimatedHours(BigDecimal.valueOf(ctx.totalHours()).setScale(2, RoundingMode.HALF_UP));
         List<MdmOperation> operations = ctx.operations();
-        if (!operations.isEmpty()) {
+        if (!operations.isEmpty() && !StringUtils.hasText(order.getProcessName())) {
             order.setProcessName(operations.get(0).getOperationName());
         }
     }
@@ -423,16 +682,44 @@ public class ProcessRouteService {
 
     @Transactional
     public void initProcessRecords(Long workOrderId, Long productId, String productName) {
+        initProcessRecords(workOrderId, productId, productName, null);
+    }
+
+    @Transactional
+    public void initProcessRecords(Long workOrderId, Long productId, String productName, String startProcessName) {
         RoutingContext ctx = resolveRouting(productId, productName);
-        for (MdmOperation operation : ctx.operations()) {
+        List<MdmOperation> operations = ctx.operations();
+        if (operations.isEmpty()) {
+            return;
+        }
+        int startIndex = 0;
+        if (StringUtils.hasText(startProcessName)) {
+            String startName = startProcessName.trim();
+            for (int i = 0; i < operations.size(); i++) {
+                if (startName.equals(operations.get(i).getOperationName())) {
+                    startIndex = i;
+                    break;
+                }
+            }
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (int i = 0; i < operations.size(); i++) {
+            MdmOperation operation = operations.get(i);
             ProdProcessRecord record = new ProdProcessRecord();
             record.setWorkOrderId(workOrderId);
             record.setOperationId(operation.getId());
             record.setSeqNo(operation.getSeqNo());
             record.setProcessName(operation.getOperationName());
-            record.setStatus("waiting");
-            record.setCreatedTime(LocalDateTime.now());
-            record.setUpdatedTime(LocalDateTime.now());
+            record.setCreatedTime(now);
+            record.setUpdatedTime(now);
+            if (i < startIndex) {
+                record.setStatus("done");
+                record.setRemark("前置工序已完成");
+                record.setStartTime(now);
+                record.setEndTime(now);
+            } else {
+                record.setStatus("waiting");
+            }
             prodProcessRecordMapper.insert(record);
         }
     }
@@ -1121,6 +1408,32 @@ public class ProcessRouteService {
             row.put("operationCode", "OP" + String.format("%02d", (FALLBACK_OPERATIONS.indexOf(name) + 1) * 10));
             return row;
         }).toList());
+        return view;
+    }
+
+    private Map<String, Object> toBriefRouteView(MdmRouting routing) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("id", routing.getId());
+        view.put("routeCode", routing.getRouteCode());
+        view.put("routeName", routing.getRouteName());
+        view.put("productName", routing.getProductName());
+        view.put("version", routing.getVersion());
+        view.put("status", routing.getStatus());
+        view.put("statusLabel", routeStatusLabel(routing.getStatus()));
+        view.put("isDefault", routing.getIsDefault() != null && routing.getIsDefault() == 1);
+        return view;
+    }
+
+    private Map<String, Object> toBriefOperationView(MdmOperation operation, MdmRouting routing) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("id", operation.getId());
+        view.put("operationCode", operation.getOperationCode());
+        view.put("seqNo", operation.getSeqNo());
+        view.put("operationName", operation.getOperationName());
+        view.put("routingId", operation.getRoutingId());
+        view.put("routeCode", routing == null ? null : routing.getRouteCode());
+        view.put("routeName", routing == null ? null : routing.getRouteName());
+        view.put("productName", routing == null ? null : routing.getProductName());
         return view;
     }
 

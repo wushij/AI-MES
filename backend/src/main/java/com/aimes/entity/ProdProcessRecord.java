@@ -16,6 +16,8 @@ public class ProdProcessRecord {
     private Long workOrderId;
     private Long operationId;
     private Long deviceId;
+    /** 多台设备，逗号分隔 ID */
+    private String deviceIds;
     private String processName;
     private Integer seqNo;
     private String status;

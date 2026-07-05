@@ -17,7 +17,11 @@ function buildAdminQuestions(): QuickQuestionDef[] {
     { text: '今日车间生产概况如何？' },
     { text: '当前未处理异常有哪些？', permissions: ['异常上报'] },
     { text: '哪些物料触发缺料预警？', permissions: ['物料'] },
-    { text: '现在有哪些设备？', permissions: ['设备'] }
+    { text: '现在有哪些设备？', permissions: ['设备'] },
+    { text: '现在有多少条工艺？', permissions: ['工艺管理'] },
+    { text: '现在有多少条工序？', permissions: ['工艺管理'] },
+    { text: '已完成的生产计划有哪些？', permissions: ['生产计划'] },
+    { text: '现在的产品情况如何？', permissions: ['产品管理'] }
   ]
 }
 

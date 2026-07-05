@@ -135,6 +135,7 @@ public class DeviceService {
                     row.put("id", device.getId());
                     row.put("deviceCode", device.getDeviceCode());
                     row.put("deviceName", device.getDeviceName());
+                    row.put("categoryId", device.getCategoryId());
                     row.put("lineName", device.getLineName() == null ? "" : device.getLineName());
                     row.put("status", device.getStatus() == null ? "idle" : device.getStatus());
                     row.put("statusLabel", statusLabel(device.getStatus()));

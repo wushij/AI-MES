@@ -17,6 +17,7 @@ import com.aimes.entity.ProdPlan;
 import com.aimes.entity.ProdProcessRecord;
 import com.aimes.entity.ProdTeam;
 import com.aimes.entity.ProdWorkOrder;
+import com.aimes.entity.MdmOperation;
 import com.aimes.entity.SysUser;
 import com.aimes.mapper.ExcEventMapper;
 import com.aimes.mapper.ProdPlanMapper;
@@ -109,13 +110,12 @@ public class WorkOrderService {
 
     public Map<String, Object> detail(Long id) {
         ProdWorkOrder order = getOrder(id);
+        syncSkippedProcessRecords(order, listProcessRecords(id));
         Map<String, Object> detail = new LinkedHashMap<>(toView(order));
-        detail.put("processRecords", prodProcessRecordMapper.selectList(new LambdaQueryWrapper<ProdProcessRecord>()
-                .eq(ProdProcessRecord::getWorkOrderId, id)
-                .orderByAsc(ProdProcessRecord::getSeqNo)));
-        if (order.getRoutingId() != null) {
-            detail.put("routingContext", processRouteService.getExecutionContext(id));
-        }
+        detail.put("processRecords", listProcessRecords(id).stream()
+                .map(this::toProcessRecordView)
+                .toList());
+        detail.put("routingContext", processRouteService.getExecutionContext(id));
         detail.put("exceptions", excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
                 .eq(ExcEvent::getWorkOrderId, id)
                 .orderByDesc(ExcEvent::getOccurTime)));
@@ -136,15 +136,18 @@ public class WorkOrderService {
         applyProduct(order, request.getProductId(), request.getProductName());
         order.setOrderQty(request.getOrderQty() != null ? request.getOrderQty() : 1);
         order.setTeamId(request.getTeamId());
-        order.setProcessName(defaultFirstProcess(order.getProductId(), order.getProductName()));
         processRouteService.applyRoutingToWorkOrder(order, order.getProductId(), order.getProductName());
+        order.setProcessName(resolveInitialProcessName(order.getProductId(), order.getProductName(), request.getProcessName()));
         order.setProgress(request.getProgress() == null ? 0 : request.getProgress());
         order.setStatus(StringUtils.hasText(request.getStatus()) ? request.getStatus() : (request.getTeamId() == null ? "pending" : "assigned"));
         order.setPriority(request.getPriority() == null ? 2 : request.getPriority());
         order.setDeadline(request.getDeadline());
         order.setRemark(request.getRemark());
         prodWorkOrderMapper.insert(order);
-        processRouteService.initProcessRecords(order.getId(), order.getProductId(), order.getProductName());
+        processRouteService.initProcessRecords(order.getId(), order.getProductId(), order.getProductName(), order.getProcessName());
+        List<ProdProcessRecord> records = listProcessRecords(order.getId());
+        order.setProgress(computeProgressByDoneCount(records));
+        prodWorkOrderMapper.updateById(order);
         return detail(order.getId());
     }
 
@@ -250,20 +253,36 @@ public class WorkOrderService {
 
         order.setStatus("producing");
         order.setClaimUserId(user.getId());
-        prodWorkOrderMapper.updateById(order);
 
-        ProdProcessRecord first = prodProcessRecordMapper.selectOne(new LambdaQueryWrapper<ProdProcessRecord>()
-                .eq(ProdProcessRecord::getWorkOrderId, id)
-                .orderByAsc(ProdProcessRecord::getSeqNo)
-                .last("limit 1"));
-        if (first != null && !"done".equals(first.getStatus())) {
-            first.setStatus("running");
-            first.setStartTime(LocalDateTime.now());
-            prodProcessRecordMapper.updateById(first);
-            order.setProcessName(first.getProcessName());
-            prodWorkOrderMapper.updateById(order);
+        ProdProcessRecord startRecord = findClaimStartRecord(id, order.getProcessName());
+        if (startRecord != null) {
+            order.setProcessName(startRecord.getProcessName());
         }
+        prodWorkOrderMapper.updateById(order);
         return detail(id);
+    }
+
+    private ProdProcessRecord findClaimStartRecord(Long workOrderId, String currentProcessName) {
+        List<ProdProcessRecord> records = prodProcessRecordMapper.selectList(new LambdaQueryWrapper<ProdProcessRecord>()
+                .eq(ProdProcessRecord::getWorkOrderId, workOrderId)
+                .orderByAsc(ProdProcessRecord::getSeqNo));
+        if (records.isEmpty()) {
+            return null;
+        }
+        if (StringUtils.hasText(currentProcessName)) {
+            ProdProcessRecord matched = records.stream()
+                    .filter(record -> currentProcessName.equals(record.getProcessName()))
+                    .filter(record -> !"done".equals(record.getStatus()))
+                    .findFirst()
+                    .orElse(null);
+            if (matched != null) {
+                return matched;
+            }
+        }
+        return records.stream()
+                .filter(record -> !"done".equals(record.getStatus()))
+                .findFirst()
+                .orElse(null);
     }
 
     @Transactional
@@ -274,30 +293,48 @@ public class WorkOrderService {
             throw new BusinessException("只能更新本班组工单");
         }
 
-        order.setProgress(request.getProgress());
-        order.setProcessName(request.getProcessName());
-        if (request.getProgress() < 100) {
-            order.setStatus("producing");
+        List<ProdProcessRecord> existingRecords = listProcessRecords(id);
+        syncSkippedProcessRecords(order, existingRecords);
+        existingRecords = listProcessRecords(id);
+        ProdProcessRecord activeRecord = findActiveProcessRecord(existingRecords, order.getProcessName());
+        if (activeRecord != null && !activeRecord.getProcessName().equals(request.getProcessName().trim())) {
+            throw new BusinessException("请按顺序执行工序，当前应报工：" + activeRecord.getProcessName());
         }
+
+        boolean completingProcess = Boolean.TRUE.equals(request.getCompleteCurrentProcess());
+
+        order.setProcessName(request.getProcessName());
         if (request.getRemark() != null) {
             order.setRemark(request.getRemark());
         }
-        prodWorkOrderMapper.updateById(order);
 
         ProdProcessRecord currentRecord = prodProcessRecordMapper.selectOne(new LambdaQueryWrapper<ProdProcessRecord>()
                 .eq(ProdProcessRecord::getWorkOrderId, id)
                 .eq(ProdProcessRecord::getProcessName, request.getProcessName())
                 .last("limit 1"));
         if (currentRecord != null) {
-            if (request.getDeviceId() != null) {
-                processRouteService.validateDeviceForOperation(currentRecord.getOperationId(), request.getDeviceId());
-                currentRecord.setDeviceId(request.getDeviceId());
+            Long operationId = resolveOperationId(order, currentRecord);
+            if (operationId != null && currentRecord.getOperationId() == null) {
+                currentRecord.setOperationId(operationId);
             }
-            if (currentRecord.getStartTime() == null) {
+            List<Long> submittedDeviceIds = resolveSubmittedDeviceIds(request);
+            if (!submittedDeviceIds.isEmpty()) {
+                processRouteService.validateDevicesForOperation(operationId, submittedDeviceIds);
+                currentRecord.setDeviceIds(joinDeviceIds(submittedDeviceIds));
+                currentRecord.setDeviceId(submittedDeviceIds.get(0));
+            } else if (operationId != null && !processRouteService.hasDeviceBindings(operationId)) {
+                currentRecord.setDeviceId(null);
+                currentRecord.setDeviceIds(null);
+            }
+            boolean processStarting = currentRecord.getStartTime() == null;
+            if (processStarting) {
                 currentRecord.setStartTime(LocalDateTime.now());
             }
-            currentRecord.setStatus(Boolean.TRUE.equals(request.getCompleteCurrentProcess()) ? "done" : "running");
-            if (Boolean.TRUE.equals(request.getCompleteCurrentProcess())) {
+            currentRecord.setStatus(completingProcess ? "done" : "running");
+            if (processStarting) {
+                pickMaterialsForProcess(order, currentRecord, operationId, "报工开工");
+            }
+            if (completingProcess) {
                 currentRecord.setEndTime(LocalDateTime.now());
                 ProdProcessRecord next = prodProcessRecordMapper.selectOne(new LambdaQueryWrapper<ProdProcessRecord>()
                         .eq(ProdProcessRecord::getWorkOrderId, id)
@@ -305,23 +342,34 @@ public class WorkOrderService {
                         .orderByAsc(ProdProcessRecord::getSeqNo)
                         .last("limit 1"));
                 if (next != null) {
-                    next.setStatus("running");
-                    if (next.getStartTime() == null) {
-                        next.setStartTime(LocalDateTime.now());
-                    }
-                    prodProcessRecordMapper.updateById(next);
                     order.setProcessName(next.getProcessName());
-                    prodWorkOrderMapper.updateById(order);
                 }
             }
             prodProcessRecordMapper.updateById(currentRecord);
         }
 
-        if (request.getProgress() >= 100) {
-            return complete(id);
+        List<ProdProcessRecord> allRecords = listProcessRecords(id);
+        int resolvedProgress;
+        if (completingProcess) {
+            resolvedProgress = computeProgressByDoneCount(allRecords);
+        } else {
+            resolvedProgress = request.getProgress();
+            int maxAllowed = computeMaxAllowedProgress(allRecords);
+            if (resolvedProgress > maxAllowed) {
+                throw new BusinessException("当前最多可报告进度 " + maxAllowed + "%，请先完成本工序并进入下一道");
+            }
+        }
+        order.setProgress(resolvedProgress);
+        if (resolvedProgress < 100) {
+            order.setStatus("producing");
         }
         order.setUpdatedTime(LocalDateTime.now());
         prodWorkOrderMapper.updateById(order);
+
+        if (resolvedProgress >= 100) {
+            assertAllProcessesDone(id);
+            return complete(id);
+        }
         return detail(id);
     }
 
@@ -332,21 +380,18 @@ public class WorkOrderService {
             return detail(id);
         }
 
+        List<ProdProcessRecord> records = listProcessRecords(id);
+        assertAllProcessesDone(id);
+
         LocalDateTime completedAt = LocalDateTime.now();
         order.setProgress(100);
         order.setStatus("done");
         order.setUpdatedTime(completedAt);
         prodWorkOrderMapper.updateById(order);
 
-        List<ProdProcessRecord> records = prodProcessRecordMapper.selectList(new LambdaQueryWrapper<ProdProcessRecord>()
-                .eq(ProdProcessRecord::getWorkOrderId, id));
         for (ProdProcessRecord record : records) {
-            record.setStatus("done");
-            if (record.getStartTime() == null) {
-                record.setStartTime(LocalDateTime.now());
-            }
             if (record.getEndTime() == null) {
-                record.setEndTime(LocalDateTime.now());
+                record.setEndTime(completedAt);
             }
             prodProcessRecordMapper.updateById(record);
         }
@@ -357,17 +402,73 @@ public class WorkOrderService {
                     .eq(ProdWorkOrder::getPlanId, plan.getId())
                     .ne(ProdWorkOrder::getStatus, "done"));
             if (unfinished == 0) {
-                plan.setStatus("completed");
+                plan.setStatus("done");
                 prodPlanMapper.updateById(plan);
             }
         }
-        if (aimesProperties.isBomPickOnComplete() && order.getProductId() != null
-                && productService.hasActiveBom(order.getProductId())) {
+        if (aimesProperties.isBomPickOnComplete()) {
             int qty = order.getOrderQty() != null ? order.getOrderQty() : 1;
-            var demand = productService.computeBomDemand(order.getProductId(), qty);
-            materialService.pickForWorkOrder(order.getId(), order.getProductId(), qty, demand);
+            List<Long> processRecordIds = records.stream().map(ProdProcessRecord::getId).toList();
+            if (!materialService.hasPickActivity(order.getId(), processRecordIds)) {
+                var pickPlan = resolvePickDemand(order, qty);
+                if (!pickPlan.demand().isEmpty()) {
+                    materialService.pickForWorkOrder(order.getId(), order.getProductId(), qty,
+                            pickPlan.demand(), pickPlan.source());
+                }
+            }
+        }
+        if (order.getProductId() != null) {
+            int qty = order.getOrderQty() != null ? order.getOrderQty() : 1;
+            productService.receiveFromWorkOrder(order.getId(), order.getProductId(), qty, order.getOrderNo());
         }
         return detail(id);
+    }
+
+    private void pickMaterialsForProcess(ProdWorkOrder order, ProdProcessRecord record, Long operationId, String trigger) {
+        if (!aimesProperties.isBomPickOnComplete() || operationId == null || record.getId() == null) {
+            return;
+        }
+        int qty = order.getOrderQty() != null ? order.getOrderQty() : 1;
+        List<Map<String, Object>> demand = processRouteService.computeOperationMaterialDemand(operationId, qty);
+        if (demand.isEmpty()) {
+            return;
+        }
+        materialService.pickForProcess(order.getId(), record.getId(), buildProcessPickRemark(order, record, trigger), demand);
+    }
+
+    private String buildProcessPickRemark(ProdWorkOrder order, ProdProcessRecord record, String trigger) {
+        String orderNo = StringUtils.hasText(order.getOrderNo()) ? order.getOrderNo() : String.valueOf(order.getId());
+        String processName = StringUtils.hasText(record.getProcessName()) ? record.getProcessName() : "当前工序";
+        int prodQty = order.getOrderQty() != null ? order.getOrderQty() : 1;
+        String action = StringUtils.hasText(trigger) ? trigger : "工序开工";
+        return action + "领料：工单 " + orderNo + "，" + processName + "工序，生产 " + prodQty + " 件";
+    }
+
+    private record PickDemandPlan(List<Map<String, Object>> demand, String source) {
+    }
+
+    private PickDemandPlan resolvePickDemand(ProdWorkOrder order, int orderQty) {
+        if (order.getRoutingId() != null) {
+            List<Map<String, Object>> routingDemand = processRouteService
+                    .computeRoutingMaterialDemand(order.getRoutingId(), orderQty);
+            if (!routingDemand.isEmpty()) {
+                return new PickDemandPlan(routingDemand, "routing");
+            }
+        }
+        if (order.getProductId() != null) {
+            var ctx = processRouteService.resolveRouting(order.getProductId(), order.getProductName());
+            if (ctx.routing() != null) {
+                List<Map<String, Object>> routingDemand = processRouteService
+                        .computeRoutingMaterialDemand(ctx.routing().getId(), orderQty);
+                if (!routingDemand.isEmpty()) {
+                    return new PickDemandPlan(routingDemand, "routing");
+                }
+            }
+        }
+        if (order.getProductId() != null && productService.hasActiveBom(order.getProductId())) {
+            return new PickDemandPlan(productService.computeBomDemand(order.getProductId(), orderQty), "bom");
+        }
+        return new PickDemandPlan(List.of(), "bom");
     }
 
     @Transactional
@@ -678,9 +779,19 @@ public class WorkOrderService {
         return 2;
     }
 
-    private String defaultFirstProcess(Long productId, String productName) {
+    private String resolveInitialProcessName(Long productId, String productName, String requestedProcessName) {
         var operations = processRouteService.resolveRouting(productId, productName).operations();
-        return operations.isEmpty() ? "备料" : operations.get(0).getOperationName();
+        if (operations.isEmpty()) {
+            return StringUtils.hasText(requestedProcessName) ? requestedProcessName.trim() : "备料";
+        }
+        if (StringUtils.hasText(requestedProcessName)) {
+            String name = requestedProcessName.trim();
+            boolean valid = operations.stream().anyMatch(op -> name.equals(op.getOperationName()));
+            if (valid) {
+                return name;
+            }
+        }
+        return operations.get(0).getOperationName();
     }
 
     private void applyProduct(ProdWorkOrder order, Long productId, String productName) {
@@ -736,5 +847,158 @@ public class WorkOrderService {
             view.put("completedAt", order.getUpdatedTime());
         }
         return view;
+    }
+
+    private Long resolveOperationId(ProdWorkOrder order, ProdProcessRecord record) {
+        if (record.getOperationId() != null) {
+            return record.getOperationId();
+        }
+        return processRouteService.resolveRouting(order.getProductId(), order.getProductName()).operations().stream()
+                .filter(op -> record.getProcessName().equals(op.getOperationName()))
+                .map(MdmOperation::getId)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Map<String, Object> toProcessRecordView(ProdProcessRecord record) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", record.getId());
+        row.put("workOrderId", record.getWorkOrderId());
+        row.put("operationId", record.getOperationId());
+        row.put("deviceId", record.getDeviceId());
+        List<Long> deviceIds = parseDeviceIds(record.getDeviceIds());
+        if (deviceIds.isEmpty() && record.getDeviceId() != null) {
+            deviceIds = List.of(record.getDeviceId());
+        }
+        row.put("deviceIds", deviceIds);
+        row.put("processName", record.getProcessName());
+        row.put("seqNo", record.getSeqNo());
+        row.put("status", record.getStatus());
+        row.put("startTime", record.getStartTime());
+        row.put("endTime", record.getEndTime());
+        row.put("remark", record.getRemark());
+        return row;
+    }
+
+    private List<Long> resolveSubmittedDeviceIds(WorkOrderProgressRequest request) {
+        if (request.getDeviceIds() != null && !request.getDeviceIds().isEmpty()) {
+            return request.getDeviceIds().stream().filter(Objects::nonNull).distinct().toList();
+        }
+        if (request.getDeviceId() != null) {
+            return List.of(request.getDeviceId());
+        }
+        return List.of();
+    }
+
+    private String joinDeviceIds(List<Long> deviceIds) {
+        if (deviceIds == null || deviceIds.isEmpty()) {
+            return null;
+        }
+        return deviceIds.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+    }
+
+    private List<Long> parseDeviceIds(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return List.of();
+        }
+        List<Long> ids = new ArrayList<>();
+        for (String part : raw.split(",")) {
+            if (!StringUtils.hasText(part)) {
+                continue;
+            }
+            ids.add(Long.valueOf(part.trim()));
+        }
+        return ids;
+    }
+
+    private List<ProdProcessRecord> listProcessRecords(Long workOrderId) {
+        return prodProcessRecordMapper.selectList(new LambdaQueryWrapper<ProdProcessRecord>()
+                .eq(ProdProcessRecord::getWorkOrderId, workOrderId)
+                .orderByAsc(ProdProcessRecord::getSeqNo));
+    }
+
+    private int countDoneProcesses(List<ProdProcessRecord> records) {
+        return (int) records.stream().filter(record -> "done".equals(record.getStatus())).count();
+    }
+
+    private int computeMaxAllowedProgress(List<ProdProcessRecord> records) {
+        if (records.isEmpty()) {
+            return 100;
+        }
+        int total = records.size();
+        int done = countDoneProcesses(records);
+        if (done >= total) {
+            return 100;
+        }
+        return Math.min(99, ((done + 1) * 100) / total - 1);
+    }
+
+    private int computeProgressByDoneCount(List<ProdProcessRecord> records) {
+        if (records.isEmpty()) {
+            return 0;
+        }
+        int total = records.size();
+        int done = countDoneProcesses(records);
+        if (done >= total) {
+            return 100;
+        }
+        return (done * 100) / total;
+    }
+
+    private void assertAllProcessesDone(Long workOrderId) {
+        List<String> pending = listProcessRecords(workOrderId).stream()
+                .filter(record -> !"done".equals(record.getStatus()))
+                .map(ProdProcessRecord::getProcessName)
+                .toList();
+        if (!pending.isEmpty()) {
+            throw new BusinessException("尚有未完成工序：" + String.join("、", pending) + "，请逐道完成后再完工");
+        }
+    }
+
+    private ProdProcessRecord findActiveProcessRecord(List<ProdProcessRecord> records, String preferredProcessName) {
+        if (StringUtils.hasText(preferredProcessName)) {
+            ProdProcessRecord matched = records.stream()
+                    .filter(record -> preferredProcessName.equals(record.getProcessName()))
+                    .filter(record -> !"done".equals(record.getStatus()))
+                    .findFirst()
+                    .orElse(null);
+            if (matched != null) {
+                return matched;
+            }
+        }
+        return records.stream()
+                .filter(record -> !"done".equals(record.getStatus()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void syncSkippedProcessRecords(ProdWorkOrder order, List<ProdProcessRecord> records) {
+        if (!StringUtils.hasText(order.getProcessName()) || records.isEmpty()) {
+            return;
+        }
+        Integer startSeq = records.stream()
+                .filter(record -> order.getProcessName().equals(record.getProcessName()))
+                .map(ProdProcessRecord::getSeqNo)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (startSeq == null) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (ProdProcessRecord record : records) {
+            if (record.getSeqNo() == null || record.getSeqNo() >= startSeq || "done".equals(record.getStatus())) {
+                continue;
+            }
+            record.setStatus("done");
+            record.setRemark("前置工序已完成");
+            if (record.getStartTime() == null) {
+                record.setStartTime(now);
+            }
+            if (record.getEndTime() == null) {
+                record.setEndTime(now);
+            }
+            prodProcessRecordMapper.updateById(record);
+        }
     }
 }

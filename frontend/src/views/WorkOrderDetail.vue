@@ -13,7 +13,7 @@
             <span>{{ detail.productName }}</span>
             <el-tag v-if="productInfo?.productCode" size="small" type="info" style="margin-left:8px">{{ productInfo.productCode }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="工单数量">{{ detail.orderQty ?? 1 }} {{ productInfo?.unit || '件' }}</el-descriptions-item>
+          <el-descriptions-item label="生产数量">{{ detail.orderQty ?? 1 }} {{ productInfo?.unit || '件' }}</el-descriptions-item>
           <el-descriptions-item label="工艺路线">{{ detail.routeVersion ? `${detail.routeVersion}` : '--' }}</el-descriptions-item>
           <el-descriptions-item label="关联计划">{{ detail.planNo || '--' }}</el-descriptions-item>
           <el-descriptions-item label="班组">{{ detail.teamName || '--' }}</el-descriptions-item>
@@ -31,8 +31,8 @@
       <el-card v-if="bomPreview.length" shadow="hover" class="detail-card">
         <template #header>
           <div class="card-header-row">
-            <span>理论用料（BOM × {{ detail.orderQty ?? 1 }} 件）</span>
-            <el-tag type="success" size="small">已配置 BOM</el-tag>
+            <span>理论用料（工艺汇总 × {{ detail.orderQty ?? 1 }} 件）</span>
+            <el-tag type="success" size="small">工艺物料</el-tag>
           </div>
         </template>
         <el-table :data="bomPreview" stripe border size="small">

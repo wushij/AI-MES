@@ -53,7 +53,14 @@ export function updateWorkOrder(
 
 export function updateWorkOrderProgress(
   id: number | string,
-  payload: { progress: number; processName?: string; deviceId?: number | string; remark?: string; completeCurrentProcess?: boolean }
+  payload: {
+    progress: number
+    processName?: string
+    deviceId?: number | string
+    deviceIds?: Array<number | string>
+    remark?: string
+    completeCurrentProcess?: boolean
+  }
 ) {
   return request.put(`/work-orders/${id}/progress`, payload).then((res) => res.data)
 }

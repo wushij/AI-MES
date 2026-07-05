@@ -314,28 +314,67 @@ function resetMaintenanceSearch() {
   void loadMaintenancePlans()
 }
 
+function resetInspectionForm() {
+  inspectionForm.planCode = ''
+  inspectionForm.planName = ''
+  inspectionForm.cycleType = 'daily'
+  inspectionForm.categoryId = undefined
+  inspectionForm.deviceId = undefined
+  inspectionForm.checkItems = ['']
+  inspectionForm.remark = ''
+  inspectionForm.enabled = true
+}
+
+function resetMaintenanceForm() {
+  maintenanceForm.planCode = ''
+  maintenanceForm.planName = ''
+  maintenanceForm.cycleType = 'monthly'
+  maintenanceForm.nextDueDate = ''
+  maintenanceForm.categoryId = undefined
+  maintenanceForm.deviceId = undefined
+  maintenanceForm.maintenanceItems = ['']
+  maintenanceForm.remark = ''
+  maintenanceForm.enabled = true
+}
+
+function toNullableBindId(id?: number | string | null) {
+  return id != null && id !== '' ? id : null
+}
+
 function openInspectionForm(row?: DeviceInspectionPlan) {
+  resetInspectionForm()
   inspectionEditingId.value = row?.id ?? null
-  inspectionForm.planCode = row?.planCode ?? ''
-  inspectionForm.planName = row?.planName ?? ''
-  inspectionForm.cycleType = row?.cycleType ?? 'daily'
-  inspectionForm.categoryId = row?.categoryId
-  inspectionForm.deviceId = row?.deviceId
-  inspectionForm.checkItems = row?.checkItems?.length ? [...row.checkItems] : ['']
-  inspectionForm.remark = row?.remark ?? ''
+  if (!row) {
+    inspectionFormVisible.value = true
+    return
+  }
+  inspectionForm.planCode = row.planCode ?? ''
+  inspectionForm.planName = row.planName ?? ''
+  inspectionForm.cycleType = row.cycleType ?? 'daily'
+  inspectionForm.categoryId = row.categoryId ?? undefined
+  inspectionForm.deviceId = row.deviceId ?? undefined
+  inspectionForm.checkItems = row.checkItems?.length ? [...row.checkItems] : ['']
+  inspectionForm.remark = row.remark ?? ''
+  inspectionForm.enabled = row.enabled ?? true
   inspectionFormVisible.value = true
 }
 
 function openMaintenanceForm(row?: DeviceMaintenancePlan) {
+  resetMaintenanceForm()
   maintenanceEditingId.value = row?.id ?? null
-  maintenanceForm.planCode = row?.planCode ?? ''
-  maintenanceForm.planName = row?.planName ?? ''
-  maintenanceForm.cycleType = row?.cycleType ?? 'monthly'
-  maintenanceForm.nextDueDate = row?.nextDueDate ?? ''
-  maintenanceForm.categoryId = row?.categoryId
-  maintenanceForm.deviceId = row?.deviceId
-  maintenanceForm.maintenanceItems = row?.maintenanceItems?.length ? [...row.maintenanceItems] : ['']
-  maintenanceForm.remark = row?.remark ?? ''
+  if (!row) {
+    maintenanceFormVisible.value = true
+    return
+  }
+  maintenanceForm.planCode = row.planCode ?? ''
+  maintenanceForm.planName = row.planName ?? ''
+  maintenanceForm.cycleType = row.cycleType ?? 'monthly'
+  maintenanceForm.nextDueDate = row.nextDueDate ?? ''
+  maintenanceForm.categoryId = row.categoryId ?? undefined
+  maintenanceForm.deviceId = row.deviceId ?? undefined
+  maintenanceForm.maintenanceItems = row.maintenanceItems?.length ? [...row.maintenanceItems] : ['']
+  maintenanceForm.remark = row.remark ?? ''
+  maintenanceForm.enabled = row.enabled ?? true
   maintenanceFormVisible.value = true
 }
 
@@ -347,7 +386,13 @@ async function submitInspectionPlan() {
   }
   inspectionSubmitting.value = true
   try {
-    const payload = { ...inspectionForm, checkItems: items, planCode: inspectionForm.planCode.trim() || undefined }
+    const payload = {
+      ...inspectionForm,
+      categoryId: toNullableBindId(inspectionForm.categoryId),
+      deviceId: toNullableBindId(inspectionForm.deviceId),
+      checkItems: items,
+      planCode: inspectionForm.planCode.trim() || undefined,
+    }
     if (inspectionEditingId.value) await updateDeviceInspectionPlan(inspectionEditingId.value, payload)
     else await createDeviceInspectionPlan(payload)
     ElMessage.success('点检计划已保存')
@@ -370,7 +415,13 @@ async function submitMaintenancePlan() {
   }
   maintenanceSubmitting.value = true
   try {
-    const payload = { ...maintenanceForm, maintenanceItems: items, planCode: maintenanceForm.planCode.trim() || undefined }
+    const payload = {
+      ...maintenanceForm,
+      categoryId: toNullableBindId(maintenanceForm.categoryId),
+      deviceId: toNullableBindId(maintenanceForm.deviceId),
+      maintenanceItems: items,
+      planCode: maintenanceForm.planCode.trim() || undefined,
+    }
     if (maintenanceEditingId.value) await updateDeviceMaintenancePlan(maintenanceEditingId.value, payload)
     else await createDeviceMaintenancePlan(payload)
     ElMessage.success('保养计划已保存')

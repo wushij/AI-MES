@@ -79,6 +79,16 @@ export function isAbortError(error: unknown) {
   return err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED'
 }
 
+/** 从 ApiRequestError / AxiosError 中提取可读错误文案 */
+export function resolveErrorMessage(error: unknown, fallback = '操作失败') {
+  if (isAbortError(error)) return fallback
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = String((error as Error).message || '').trim()
+    if (message && message !== '已取消请求') return message
+  }
+  return fallback
+}
+
 export function normalizeRequestError(error: AxiosError<ApiResult>): ApiRequestError {
   const apiCode = error.response?.data?.code
   const httpStatus = error.response?.status

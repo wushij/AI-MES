@@ -106,6 +106,22 @@ export function getProcessOperationNames() {
   return request.get<string[]>('/process-routes/operations').then((res) => res.data)
 }
 
+export interface ResolvedProcessRoute {
+  routingId?: number | string
+  routeName?: string
+  routeCode?: string
+  isDefault?: boolean
+  productId?: number | string
+  productName?: string
+  operations: Array<{ seqNo?: number; operationName: string }>
+}
+
+export function resolveProcessRouteForProduct(productId?: number | string, productName?: string) {
+  return request
+    .get<ResolvedProcessRoute>('/process-routes/resolve', { params: { productId, productName } })
+    .then((res) => res.data)
+}
+
 export function getProcessExecutionContext(workOrderId: number | string) {
   return request.get<ProcessExecutionContext>(`/process-routes/execution/${workOrderId}`).then((res) => res.data)
 }

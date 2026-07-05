@@ -71,9 +71,10 @@
             <StatusTag :status="row.status" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="right" width="280" align="center">
+        <el-table-column label="操作" fixed="right" width="320" align="center">
           <template #default="{ row }">
             <el-button size="small" class="action-btn action-btn--detail" @click="openDetail(row)">详情</el-button>
+            <el-button size="small" class="action-btn action-btn--edit-info" @click="openEditDialog(row)">编辑</el-button>
             <el-button size="small" class="action-btn action-btn--edit" @click="openStockDialog(row)">更新库存</el-button>
             <el-button size="small" class="action-btn action-btn--delete" :loading="deleteLoading === row.id" @click="removeMaterial(row)">删除</el-button>
           </template>
@@ -95,15 +96,15 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="createDialogVisible" title="新增物料" width="480px">
+    <el-dialog v-model="createDialogVisible" :title="isEditMode ? '编辑物料' : '新增物料'" width="480px">
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="96px">
         <el-form-item label="物料编号">
-          <el-input v-model="createForm.materialCode" placeholder="留空自动生成，如 MAT-004" />
+          <el-input v-model="createForm.materialCode" :disabled="isEditMode" placeholder="留空自动生成，如 MAT-004" />
         </el-form-item>
         <el-form-item label="物料名称" prop="materialName">
           <el-input v-model="createForm.materialName" placeholder="如：精密螺丝 M4" />
         </el-form-item>
-        <el-form-item label="当前库存" prop="stockQty">
+        <el-form-item v-if="!isEditMode" label="当前库存" prop="stockQty">
           <el-input-number v-model="createForm.stockQty" :min="0" :step="1" class="full-width" />
         </el-form-item>
         <el-form-item label="安全库存" prop="safetyStock">
@@ -124,7 +125,7 @@
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submittingCreate" @click="submitCreate">创建</el-button>
+        <el-button type="primary" :loading="submittingCreate" @click="submitCreate">{{ isEditMode ? '保存' : '创建' }}</el-button>
       </template>
     </el-dialog>
 
@@ -315,7 +316,14 @@
                 <span class="txn-change">{{ row.beforeQty }} → {{ row.afterQty }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip align="center" />
+            <el-table-column label="备注" min-width="120" align="center">
+              <template #default="{ row }">
+                <el-tooltip v-if="row.remark" :content="row.remark" placement="top" :show-after="200">
+                  <span class="txn-remark">{{ row.remark }}</span>
+                </el-tooltip>
+                <span v-else class="txn-remark-placeholder">—</span>
+              </template>
+            </el-table-column>
           </el-table>
         </div>
       </template>
@@ -341,7 +349,7 @@ import { normalizeList } from '@/utils/normalizeList'
 import { confirmDelete } from '@/utils/confirmDelete'
 import type { MaterialTransaction } from '@/api/materials'
 
-interface MaterialRow { id: string | number; code: string; name: string; unit: string; stockQty: number; safetyStock: number; gap: number; status: string }
+interface MaterialRow { id: string | number; code: string; name: string; unit: string; stockQty: number; safetyStock: number; gap: number; status: string; remark?: string }
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -354,6 +362,8 @@ const detailVisible = ref(false)
 const txnLoading = ref(false)
 const transactions = ref<MaterialTransaction[]>([])
 const createDialogVisible = ref(false)
+const isEditMode = ref(false)
+const editingId = ref<number | string | null>(null)
 const stockFormRef = ref<FormInstance>()
 const createFormRef = ref<FormInstance>()
 const tableHeaderStyle = { background: '#F5F7FA', fontWeight: '600' }
@@ -472,7 +482,8 @@ async function loadMaterials() {
         stockQty,
         safetyStock,
         gap,
-        status: String(item.alertStatus ?? (gap > 0 ? 'warning' : 'normal'))
+        status: String(item.alertStatus ?? (gap > 0 ? 'warning' : 'normal')),
+        remark: item.remark || ''
       }
     })
     if (response?.summary) {
@@ -539,6 +550,8 @@ function txnTypeTagType(type: string): 'success' | 'warning' | 'info' | 'danger'
 }
 
 function openCreateDialog() {
+  isEditMode.value = false
+  editingId.value = null
   Object.assign(createForm, {
     materialCode: '',
     materialName: '',
@@ -550,37 +563,62 @@ function openCreateDialog() {
   createDialogVisible.value = true
 }
 
+function openEditDialog(row: MaterialRow) {
+  isEditMode.value = true
+  editingId.value = row.id
+  Object.assign(createForm, {
+    materialCode: row.code,
+    materialName: row.name,
+    stockQty: row.stockQty,
+    safetyStock: row.safetyStock,
+    unit: row.unit,
+    remark: row.remark || ''
+  })
+  createDialogVisible.value = true
+}
+
 async function submitCreate() {
   const valid = await createFormRef.value?.validate().catch(() => false)
   if (!valid) return
   submittingCreate.value = true
   try {
-    const { createMaterial } = await import('@/api/materials')
-    const payload: {
-      materialName: string
-      stockQty: number
-      safetyStock: number
-      unit: string
-      remark?: string
-      materialCode?: string
-    } = {
-      materialName: createForm.materialName.trim(),
-      stockQty: createForm.stockQty,
-      safetyStock: createForm.safetyStock,
-      unit: createForm.unit,
-      remark: createForm.remark.trim() || undefined
+    const { createMaterial, updateMaterial } = await import('@/api/materials')
+    if (isEditMode.value && editingId.value) {
+      const payload = {
+        materialName: createForm.materialName.trim(),
+        safetyStock: createForm.safetyStock,
+        unit: createForm.unit,
+        remark: createForm.remark.trim() || ''
+      }
+      await updateMaterial(editingId.value, payload)
+      ElMessage.success('物料已更新')
+    } else {
+      const payload: {
+        materialName: string
+        stockQty: number
+        safetyStock: number
+        unit: string
+        remark?: string
+        materialCode?: string
+      } = {
+        materialName: createForm.materialName.trim(),
+        stockQty: createForm.stockQty,
+        safetyStock: createForm.safetyStock,
+        unit: createForm.unit,
+        remark: createForm.remark.trim() || undefined
+      }
+      if (createForm.materialCode.trim()) {
+        payload.materialCode = createForm.materialCode.trim()
+      }
+      await createMaterial(payload)
+      ElMessage.success('物料已创建')
     }
-    if (createForm.materialCode.trim()) {
-      payload.materialCode = createForm.materialCode.trim()
-    }
-    await createMaterial(payload)
-    ElMessage.success('物料已创建')
     createDialogVisible.value = false
     await loadStats()
     await loadMaterials()
   } catch (error) {
     console.error(error)
-    ElMessage.error(error instanceof Error ? error.message : '创建物料失败')
+    ElMessage.error(error instanceof Error ? error.message : (isEditMode.value ? '更新物料失败' : '创建物料失败'))
   } finally {
     submittingCreate.value = false
   }
@@ -773,6 +811,15 @@ function rowClassName({ row }: { row: MaterialRow }) {
 .action-btn--edit:hover {
   background: rgba(79, 70, 229, 0.05) !important;
   border-color: #4f46e5 !important;
+}
+
+.action-btn--edit-info {
+  border: 1px solid rgba(13, 148, 136, 0.3) !important;
+  color: #0d9488 !important;
+}
+.action-btn--edit-info:hover {
+  background: rgba(13, 148, 136, 0.05) !important;
+  border-color: #0d9488 !important;
 }
 
 .action-btn--delete {
@@ -1125,5 +1172,20 @@ function rowClassName({ row }: { row: MaterialRow }) {
   font-family: ui-monospace, monospace;
   font-size: 13px;
   color: #475569;
+}
+
+.txn-remark {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: #475569;
+  cursor: default;
+}
+
+.txn-remark-placeholder {
+  color: #cbd5e1;
 }
 </style>

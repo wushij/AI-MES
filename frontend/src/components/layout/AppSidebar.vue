@@ -36,7 +36,7 @@ const navItems: NavItem[] = [
   { path: '/devices', label: '设备管理', icon: Monitor, permission: '设备' },
   { path: '/exceptions', label: '异常管理', icon: Warning, permission: '异常上报' },
   { path: '/products', label: '产品管理', icon: Goods, permission: '产品管理' },
-  { path: '/materials', label: '物料预警', icon: Box, permission: '物料' },
+  { path: '/materials', label: '物料管理', icon: Box, permission: '物料' },
   { path: '/ai-chat', label: '智能客服', icon: ChatDotRound, permission: 'AI 客服' },
   { path: '/ai-scheduling', label: '智能排产', icon: TrendCharts, permission: '排产' },
   {

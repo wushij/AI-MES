@@ -12,7 +12,6 @@ import com.aimes.entity.SysUser;
 import com.aimes.mapper.AiChatLogMapper;
 import com.aimes.mapper.ExcEventMapper;
 import com.aimes.mapper.MatMaterialMapper;
-import com.aimes.mapper.ProdPlanMapper;
 import com.aimes.mapper.ProdTeamMapper;
 import com.aimes.mapper.ProdWorkOrderMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -66,13 +65,15 @@ public class CozeService {
     private final AiChatLogMapper aiChatLogMapper;
     private final ExcEventMapper excEventMapper;
     private final ProdWorkOrderMapper prodWorkOrderMapper;
-    private final ProdPlanMapper prodPlanMapper;
     private final ProdTeamMapper prodTeamMapper;
     private final MatMaterialMapper matMaterialMapper;
     private final AuthService authService;
     private final CozeConfigService cozeConfigService;
     private final DashboardService dashboardService;
     private final DeviceService deviceService;
+    private final ProcessRouteService processRouteService;
+    private final PlanService planService;
+    private final ProductService productService;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
@@ -1759,7 +1760,100 @@ public class CozeService {
         if (matchesDeviceRealtimeQuery(text)) {
             return true;
         }
+        if (matchesProcessRealtimeQuery(text)) {
+            return true;
+        }
+        if (matchesOperationRealtimeQuery(text)) {
+            return true;
+        }
+        if (matchesPlanRealtimeQuery(text)) {
+            return true;
+        }
+        if (matchesProductRealtimeQuery(text)) {
+            return true;
+        }
         return false;
+    }
+
+    /** 产品台账/库存/概况查数 —— 走数据库；产品管理说明仍走知识库 */
+    private boolean matchesProductRealtimeQuery(String text) {
+        if (!text.contains("产品")) {
+            return false;
+        }
+        if (text.toUpperCase().contains("PRD-")) {
+            return true;
+        }
+        if (isMaterialModuleKnowledgeQuery(text)) {
+            return false;
+        }
+        if (containsAny(text, "情况", "概况", "库存", "成品", "在产", "在制", "台账")) {
+            return true;
+        }
+        if (containsAny(text, "SOP", "手册", "步骤", "应该", "规范")) {
+            return false;
+        }
+        if (containsAny(text, "怎么", "如何", "怎样", "怎么办")
+                && containsAny(text, "处理", "操作", "上报", "维护", "管理", "创建", "新增", "录入")) {
+            return false;
+        }
+        return containsAny(text,
+                "多少", "几个", "哪些", "列表", "当前", "现在", "有哪些", "条", "状态", "呢", "如何", "怎样");
+    }
+
+    /** 生产计划查数 —— 走数据库；计划模块说明/SOP 仍走知识库 */
+    private boolean matchesPlanRealtimeQuery(String text) {
+        if (!containsAny(text, "计划", "生产计划")) {
+            return false;
+        }
+        if (isMaterialModuleKnowledgeQuery(text)) {
+            return false;
+        }
+        if (containsAny(text, "SOP", "手册", "步骤", "怎么", "如何", "怎样", "怎么办", "应该")) {
+            return false;
+        }
+        return containsAny(text,
+                "多少", "几个", "哪些", "列表", "当前", "现在", "有哪些", "条", "状态", "呢",
+                "已完成", "完成", "草稿", "下发", "已下发", "进行中", "暂停");
+    }
+
+    /** 工序主数据查数 —— 走数据库；工单进度/工序任务/SOP 仍走其他模式 */
+    private boolean matchesOperationRealtimeQuery(String text) {
+        if (!text.contains("工序")) {
+            return false;
+        }
+        if (text.contains("标准工序") || text.toUpperCase().contains("WO-") || text.contains("工单")) {
+            return false;
+        }
+        if (text.contains("任务") && containsAny(text, "认领", "待办", "待领", "班组", "班")) {
+            return false;
+        }
+        if (text.contains("进度") && !containsAny(text, "多少", "几个", "哪些", "条", "总数")) {
+            return false;
+        }
+        if (isMaterialModuleKnowledgeQuery(text)) {
+            return false;
+        }
+        if (containsAny(text, "SOP", "手册", "步骤", "怎么", "如何", "怎样", "怎么办", "应该", "规范", "操作")) {
+            return false;
+        }
+        return containsAny(text,
+                "多少", "几个", "哪些", "列表", "当前", "现在", "有哪些", "条", "总数", "一共");
+    }
+
+    /** 工艺路线台账/状态等查数 —— 走数据库；SOP/审批流程说明仍走知识库 */
+    private boolean matchesProcessRealtimeQuery(String text) {
+        if (!containsAny(text, "工艺", "工艺路线")) {
+            return false;
+        }
+        if (isMaterialModuleKnowledgeQuery(text)) {
+            return false;
+        }
+        if (containsAny(text, "SOP", "手册", "步骤", "怎么", "如何", "怎样", "怎么办", "应该")) {
+            return false;
+        }
+        return containsAny(text,
+                "多少", "几个", "哪些", "列表", "当前", "现在", "有哪些", "状态", "条",
+                "待审批", "已发布", "草稿", "发布", "驳回", "停用");
     }
 
     /** 设备台账/状态/故障等查数 —— 走数据库；SOP/流程说明仍走知识库 */
@@ -1801,13 +1895,10 @@ public class CozeService {
             String message,
             List<ProdWorkOrder> orders,
             List<AiChatLog> sessionHistory) {
-        List<com.aimes.entity.ProdPlan> activePlans = prodPlanMapper.selectList(new LambdaQueryWrapper<com.aimes.entity.ProdPlan>()
-                .eq(com.aimes.entity.ProdPlan::getStatus, "released")
-                .orderByDesc(com.aimes.entity.ProdPlan::getPlanDate)
-                .last("limit 10"));
         List<ProdWorkOrder> activeOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
                 .orderByDesc(ProdWorkOrder::getId)
                 .last("limit 20"));
+        Map<String, Object> planSummary = planService.summary();
         List<MatMaterial> warningMaterials = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
                 .eq(MatMaterial::getAlertStatus, "warning"));
         List<ExcEvent> openExceptions = excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
@@ -1821,16 +1912,8 @@ public class CozeService {
         builder.append("当前系统时间：").append(LocalDateTime.now()).append("\n");
         builder.append("当前用户：").append(user.getRealName()).append("，角色：").append(user.getRole()).append("\n");
 
-        if (!activePlans.isEmpty()) {
-            builder.append("\n【本地实时数据·已下发计划（最新10条）】\n");
-            for (com.aimes.entity.ProdPlan plan : activePlans) {
-                builder.append("- 计划号=").append(plan.getPlanNo())
-                        .append(" 产品=").append(plan.getProductName())
-                        .append(" 数量=").append(plan.getPlanQty())
-                        .append(" 计划日期=").append(plan.getPlanDate())
-                        .append(" 状态=已下发\n");
-            }
-        }
+        appendPlanRealtimeSection(builder, message, planSummary);
+        appendProductRealtimeSection(builder, message);
 
         if (!activeOrders.isEmpty()) {
             builder.append("\n【本地实时数据·工单（最新20条）】\n");
@@ -1858,6 +1941,8 @@ public class CozeService {
         }
 
         appendDeviceRealtimeSection(builder, message);
+        appendProcessRealtimeSection(builder, message);
+        appendOperationRealtimeSection(builder, message);
 
         builder.append("\n【本地实时数据·未处理异常（open/processing，最新20条）】\n");
         if (openExceptions.isEmpty()) {
@@ -1896,7 +1981,7 @@ public class CozeService {
 
         if (needsDataSummary(message)) {
             builder.append("\n【系统根据 MySQL 预生成的数据摘要（引用时数字不得改动）】\n");
-            builder.append(buildDataSummary(activePlans, activeOrders, warningMaterials, openExceptions));
+            builder.append(buildDataSummary(planSummary, activeOrders, warningMaterials, openExceptions));
         }
 
         builder.append("\n【回答要求】\n");
@@ -1928,7 +2013,144 @@ public class CozeService {
                 || text.contains("班")
                 || text.contains("任务")
                 || text.contains("异常")
-                || text.contains("设备");
+                || text.contains("设备")
+                || text.contains("工艺")
+                || text.contains("工序")
+                || text.contains("产品");
+    }
+
+    private void appendProductRealtimeSection(StringBuilder builder, String message) {
+        if (!StringUtils.hasText(message) || !matchesProductRealtimeQuery(message)) {
+            return;
+        }
+        Map<String, Object> summary = productService.summary();
+        builder.append("\n【本地实时数据·产品台账（MySQL 实时统计）】\n");
+        builder.append("- 产品总数=").append(summary.get("totalCount"))
+                .append("，启用=").append(summary.get("activeCount"))
+                .append("，停用=").append(summary.get("inactiveCount"))
+                .append("，成品总库存=").append(summary.get("totalStockQty"))
+                .append("，已配置工艺物料=").append(summary.get("withBomCount"))
+                .append("\n");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> products = (List<Map<String, Object>>) summary.get("products");
+        if (products == null || products.isEmpty()) {
+            builder.append("- 当前无产品台账数据\n");
+            return;
+        }
+        builder.append("\n【本地实时数据·产品明细（全部）】\n");
+        for (Map<String, Object> product : products) {
+            builder.append("- 产品编码=").append(product.get("productCode"))
+                    .append(" 名称=").append(product.get("productName"))
+                    .append(" 规格=").append(product.get("spec") == null ? "—" : product.get("spec"))
+                    .append(" 库存=").append(product.get("stockQty")).append(product.get("unit"))
+                    .append(" 状态=").append(product.get("statusLabel"))
+                    .append(Boolean.TRUE.equals(product.get("hasBom")) ? " 已配BOM" : " 未配BOM")
+                    .append("\n");
+        }
+    }
+
+    private void appendPlanRealtimeSection(StringBuilder builder, String message, Map<String, Object> summary) {
+        if (!StringUtils.hasText(message) || !matchesPlanRealtimeQuery(message)) {
+            return;
+        }
+        builder.append("\n【本地实时数据·生产计划（MySQL 实时统计）】\n");
+        builder.append("- 计划总数=").append(summary.get("totalCount"))
+                .append("，草稿=").append(summary.get("draftCount"))
+                .append("，已下发=").append(summary.get("releasedCount"))
+                .append("，已完成=").append(summary.get("completedCount"))
+                .append("，已暂停=").append(summary.get("pausedCount"))
+                .append("\n");
+
+        List<Map<String, Object>> detailPlans;
+        if (message.contains("已完成") || message.contains("完成的计划") || message.contains("完成的生产计划")) {
+            detailPlans = planService.listBriefByStatuses(List.of("done", "completed"), 20);
+            builder.append("\n【本地实时数据·已完成生产计划明细】\n");
+        } else if (message.contains("草稿")) {
+            detailPlans = planService.listBriefByStatuses(List.of("draft"), 20);
+            builder.append("\n【本地实时数据·草稿生产计划明细】\n");
+        } else if (message.contains("下发")) {
+            detailPlans = planService.listBriefByStatuses(List.of("released"), 20);
+            builder.append("\n【本地实时数据·已下发生产计划明细】\n");
+        } else {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> all = (List<Map<String, Object>>) summary.get("plans");
+            detailPlans = all == null ? List.of() : all.stream().limit(20).toList();
+            builder.append("\n【本地实时数据·生产计划明细（最新20条）】\n");
+        }
+
+        if (detailPlans.isEmpty()) {
+            builder.append("- 当前无匹配的生产计划数据\n");
+            return;
+        }
+        for (Map<String, Object> plan : detailPlans) {
+            builder.append("- 计划号=").append(plan.get("planNo"))
+                    .append(" 产品=").append(plan.get("productName"))
+                    .append(" 数量=").append(plan.get("planQty"))
+                    .append(" 计划日期=").append(plan.get("planDate"))
+                    .append(" 状态=").append(plan.get("statusLabel"))
+                    .append("\n");
+        }
+    }
+
+    private void appendOperationRealtimeSection(StringBuilder builder, String message) {
+        if (!StringUtils.hasText(message) || !matchesOperationRealtimeQuery(message)) {
+            return;
+        }
+        Map<String, Object> summary = processRouteService.operationSummary();
+        builder.append("\n【本地实时数据·工序主数据（MySQL 实时统计）】\n");
+        builder.append("- 工序总数=").append(summary.get("totalCount"))
+                .append("，分布在 ").append(summary.get("routingCount")).append(" 条工艺路线中\n");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> operations = (List<Map<String, Object>>) summary.get("operations");
+        if (operations == null || operations.isEmpty()) {
+            builder.append("- 当前无工序主数据\n");
+            return;
+        }
+        builder.append("\n【本地实时数据·工序明细（全部）】\n");
+        for (Map<String, Object> operation : operations) {
+            builder.append("- 工序序号=").append(operation.get("seqNo"))
+                    .append(" 名称=").append(operation.get("operationName"))
+                    .append(" 编码=").append(operation.get("operationCode") == null ? "—" : operation.get("operationCode"))
+                    .append(" 所属工艺=").append(operation.get("routeName") == null ? "—" : operation.get("routeName"))
+                    .append("（").append(operation.get("routeCode") == null ? "—" : operation.get("routeCode"))
+                    .append("）")
+                    .append(" 产品=").append(operation.get("productName") == null ? "通用" : operation.get("productName"))
+                    .append("\n");
+        }
+    }
+
+    private void appendProcessRealtimeSection(StringBuilder builder, String message) {
+        if (!StringUtils.hasText(message) || !matchesProcessRealtimeQuery(message)) {
+            return;
+        }
+        Map<String, Object> summary = processRouteService.summary();
+        builder.append("\n【本地实时数据·工艺路线（MySQL 实时统计）】\n");
+        builder.append("- 工艺总数=").append(summary.get("totalCount"))
+                .append("，草稿=").append(summary.get("draftCount"))
+                .append("，待审批=").append(summary.get("pendingApprovalCount"))
+                .append("，已发布=").append(summary.get("publishedCount"))
+                .append("，已驳回=").append(summary.get("rejectedCount"))
+                .append("，已停用=").append(summary.get("disabledCount"))
+                .append("\n");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> routes = (List<Map<String, Object>>) summary.get("routes");
+        if (routes == null || routes.isEmpty()) {
+            builder.append("- 当前无工艺路线数据\n");
+            return;
+        }
+        builder.append("\n【本地实时数据·工艺路线明细（全部）】\n");
+        for (Map<String, Object> route : routes) {
+            builder.append("- 工艺编号=").append(route.get("routeCode"))
+                    .append(" 名称=").append(route.get("routeName"))
+                    .append(" 产品=").append(route.get("productName") == null ? "通用" : route.get("productName"))
+                    .append(" 版本=").append(route.get("version") == null ? "—" : route.get("version"))
+                    .append(" 状态=").append(route.get("statusLabel"))
+                    .append(route.get("isDefault") == Boolean.TRUE ? " 默认" : "")
+                    .append("\n");
+        }
     }
 
     private void appendDeviceRealtimeSection(StringBuilder builder, String message) {
@@ -2012,16 +2234,23 @@ public class CozeService {
     }
 
     private String buildDataSummary(
-            List<com.aimes.entity.ProdPlan> plans,
+            Map<String, Object> planSummary,
             List<ProdWorkOrder> orders,
             List<MatMaterial> warnings,
             List<ExcEvent> openExceptions) {
         StringBuilder summary = new StringBuilder();
-        summary.append("今日/当前计划数：").append(plans.size()).append(" 个已下发计划。");
-        if (!plans.isEmpty()) {
-            summary.append(" 例如 ").append(plans.get(0).getPlanNo())
-                    .append("（").append(plans.get(0).getProductName())
-                    .append("，").append(plans.get(0).getPlanQty()).append("件）。");
+        summary.append("生产计划：共 ").append(planSummary.get("totalCount"))
+                .append(" 个（已下发 ").append(planSummary.get("releasedCount"))
+                .append("，已完成 ").append(planSummary.get("completedCount"))
+                .append("，草稿 ").append(planSummary.get("draftCount")).append("）。");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> plans = (List<Map<String, Object>>) planSummary.get("plans");
+        if (plans != null && !plans.isEmpty()) {
+            Map<String, Object> sample = plans.get(0);
+            summary.append(" 例如 ").append(sample.get("planNo"))
+                    .append("（").append(sample.get("productName"))
+                    .append("，").append(sample.get("planQty")).append("件，")
+                    .append(sample.get("statusLabel")).append("）。");
         }
         long inProgress = orders.stream()
                 .filter(o -> List.of("assigned", "producing", "exception").contains(o.getStatus()))
@@ -2232,7 +2461,156 @@ public class CozeService {
             reply.append("。");
             return reply.toString();
         }
-        return "当前为演示模式。我可以帮助你查询工单进度、班组任务、异常处理建议、物料预警或设备状态信息。";
+        if (matchesProcessRealtimeQuery(message)) {
+            Map<String, Object> summary = processRouteService.summary();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> routes = (List<Map<String, Object>>) summary.get("routes");
+            if (routes == null || routes.isEmpty()) {
+                return "当前系统中暂无工艺路线数据。";
+            }
+            StringBuilder reply = new StringBuilder("📊 当前共有 ")
+                    .append(summary.get("totalCount"))
+                    .append(" 条工艺（已发布 ")
+                    .append(summary.get("publishedCount"))
+                    .append("，待审批 ")
+                    .append(summary.get("pendingApprovalCount"))
+                    .append("，草稿 ")
+                    .append(summary.get("draftCount"))
+                    .append("）：");
+            int limit = Math.min(routes.size(), 10);
+            for (int i = 0; i < limit; i++) {
+                Map<String, Object> route = routes.get(i);
+                if (i > 0) {
+                    reply.append("；");
+                }
+                reply.append(route.get("routeCode"))
+                        .append(" ")
+                        .append(route.get("routeName"))
+                        .append("（")
+                        .append(route.get("statusLabel"))
+                        .append("）");
+            }
+            if (routes.size() > limit) {
+                reply.append("；等共 ").append(routes.size()).append(" 条");
+            }
+            reply.append("。");
+            return reply.toString();
+        }
+        if (matchesOperationRealtimeQuery(message)) {
+            Map<String, Object> summary = processRouteService.operationSummary();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> operations = (List<Map<String, Object>>) summary.get("operations");
+            if (operations == null || operations.isEmpty()) {
+                return "当前系统中暂无工序主数据。";
+            }
+            StringBuilder reply = new StringBuilder("📊 当前共有 ")
+                    .append(summary.get("totalCount"))
+                    .append(" 道工序，分布在 ")
+                    .append(summary.get("routingCount"))
+                    .append(" 条工艺路线中：");
+            int limit = Math.min(operations.size(), 10);
+            for (int i = 0; i < limit; i++) {
+                Map<String, Object> operation = operations.get(i);
+                if (i > 0) {
+                    reply.append("；");
+                }
+                reply.append(operation.get("operationName"))
+                        .append("（")
+                        .append(operation.get("routeName") == null ? "—" : operation.get("routeName"))
+                        .append("）");
+            }
+            if (operations.size() > limit) {
+                reply.append("；等共 ").append(operations.size()).append(" 道");
+            }
+            reply.append("。");
+            return reply.toString();
+        }
+        if (matchesPlanRealtimeQuery(message)) {
+            Map<String, Object> summary = planService.summary();
+            boolean askCompleted = message.contains("已完成")
+                    || message.contains("完成的计划")
+                    || message.contains("完成的生产计划");
+            List<Map<String, Object>> plans;
+            if (askCompleted) {
+                plans = planService.listBriefByStatuses(List.of("done", "completed"), 20);
+            } else if (message.contains("草稿")) {
+                plans = planService.listBriefByStatuses(List.of("draft"), 20);
+            } else if (message.contains("下发")) {
+                plans = planService.listBriefByStatuses(List.of("released"), 20);
+            } else {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> allPlans = (List<Map<String, Object>>) summary.get("plans");
+                plans = allPlans == null ? List.of() : allPlans;
+            }
+            if (askCompleted && plans.isEmpty()) {
+                return "📊 当前暂无已完成的生产计划（系统中已完成计划共 "
+                        + summary.get("completedCount") + " 条）。";
+            }
+            if (plans.isEmpty()) {
+                return "📊 当前系统中暂无生产计划数据。";
+            }
+            String title = askCompleted ? "已完成生产计划" : message.contains("草稿") ? "草稿生产计划" : "生产计划";
+            StringBuilder reply = new StringBuilder("📊 ").append(title).append("共 ")
+                    .append(askCompleted ? summary.get("completedCount") : summary.get("totalCount"))
+                    .append(" 条：");
+            int limit = Math.min(plans.size(), 10);
+            for (int i = 0; i < limit; i++) {
+                Map<String, Object> plan = plans.get(i);
+                if (i > 0) {
+                    reply.append("；");
+                }
+                reply.append(plan.get("planNo"))
+                        .append(" ")
+                        .append(plan.get("productName"))
+                        .append("（")
+                        .append(plan.get("statusLabel"))
+                        .append("，")
+                        .append(plan.get("planQty"))
+                        .append("件）");
+            }
+            if (plans.size() > limit) {
+                reply.append("；等共 ").append(plans.size()).append(" 条");
+            }
+            reply.append("。");
+            return reply.toString();
+        }
+        if (matchesProductRealtimeQuery(message)) {
+            Map<String, Object> summary = productService.summary();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> products = (List<Map<String, Object>>) summary.get("products");
+            if (products == null || products.isEmpty()) {
+                return "当前系统中暂无产品台账数据。";
+            }
+            StringBuilder reply = new StringBuilder("📊 当前共有 ")
+                    .append(summary.get("totalCount"))
+                    .append(" 个产品（启用 ")
+                    .append(summary.get("activeCount"))
+                    .append("，成品总库存 ")
+                    .append(summary.get("totalStockQty"))
+                    .append("）：");
+            int limit = Math.min(products.size(), 10);
+            for (int i = 0; i < limit; i++) {
+                Map<String, Object> product = products.get(i);
+                if (i > 0) {
+                    reply.append("；");
+                }
+                reply.append(product.get("productCode"))
+                        .append(" ")
+                        .append(product.get("productName"))
+                        .append("（库存 ")
+                        .append(product.get("stockQty"))
+                        .append(product.get("unit"))
+                        .append("，")
+                        .append(product.get("statusLabel"))
+                        .append("）");
+            }
+            if (products.size() > limit) {
+                reply.append("；等共 ").append(products.size()).append(" 个");
+            }
+            reply.append("。");
+            return reply.toString();
+        }
+        return "当前为演示模式。我可以帮助你查询工单进度、班组任务、异常处理建议、物料预警、设备状态、工艺路线、工序、生产计划或产品信息。";
     }
 
     private Map<String, Object> buildMockScheduling(

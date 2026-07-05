@@ -131,7 +131,7 @@ export function getDevices(params?: { keyword?: string; status?: string; categor
 }
 
 export function getDeviceOptions() {
-  return request.get<Array<{ id: number | string; deviceCode: string; deviceName: string; lineName?: string; status?: string; statusLabel?: string; selectable?: boolean }>>('/devices/options').then((res) => res.data)
+  return request.get<Array<{ id: number | string; deviceCode: string; deviceName: string; categoryId?: number | string; lineName?: string; status?: string; statusLabel?: string; selectable?: boolean }>>('/devices/options').then((res) => res.data)
 }
 
 export function getDeviceProcessRecords(id: number | string) {

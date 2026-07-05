@@ -1,6 +1,8 @@
 package com.aimes.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -16,7 +18,9 @@ public class DevMaintenancePlan {
     private Long id;
     private String planCode;
     private String planName;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long deviceId;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long categoryId;
     private String cycleType;
     private String maintenanceItems;

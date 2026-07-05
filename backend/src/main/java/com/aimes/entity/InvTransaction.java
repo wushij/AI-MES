@@ -15,6 +15,7 @@ public class InvTransaction {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long materialId;
+    private Long productId;
     private String txnType;
     private BigDecimal qty;
     private BigDecimal beforeQty;

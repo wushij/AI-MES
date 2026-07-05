@@ -136,6 +136,16 @@ public class MaterialService {
             txnQty = delta.abs();
         }
         material.setStockQty(stockQty);
+
+        if (org.springframework.util.StringUtils.hasText(request.getMaterialName())) {
+            material.setMaterialName(request.getMaterialName().trim());
+        }
+        if (request.getSafetyStock() != null) {
+            material.setSafetyStock(BigDecimal.valueOf(request.getSafetyStock()));
+        }
+        if (org.springframework.util.StringUtils.hasText(request.getUnit())) {
+            material.setUnit(request.getUnit().trim());
+        }
         
         boolean wasWarning = "warning".equals(material.getAlertStatus());
         boolean isWarning = stockQty.compareTo(material.getSafetyStock()) < 0;
@@ -144,6 +154,7 @@ public class MaterialService {
         if (request.getRemark() != null) {
             material.setRemark(request.getRemark());
         }
+        material.setUpdatedTime(LocalDateTime.now());
         matMaterialMapper.updateById(material);
 
         if (txnType != null && txnQty != null && txnQty.compareTo(BigDecimal.ZERO) > 0) {
@@ -179,10 +190,16 @@ public class MaterialService {
     }
 
     /**
-     * 工单完工按 BOM 扣减库存并写 pick 流水。
+     * 工单完工按 BOM 扣减库存并写 pick 流水（无工序领料记录时的回退逻辑）。
      */
     @Transactional
     public void pickForWorkOrder(Long workOrderId, Long productId, int orderQty, List<Map<String, Object>> demandItems) {
+        pickForWorkOrder(workOrderId, productId, orderQty, demandItems, "bom");
+    }
+
+    @Transactional
+    public void pickForWorkOrder(Long workOrderId, Long productId, int orderQty,
+                                 List<Map<String, Object>> demandItems, String pickSource) {
         if (workOrderId == null || demandItems == null || demandItems.isEmpty()) {
             return;
         }
@@ -193,6 +210,50 @@ public class MaterialService {
         if (existingPickCount > 0) {
             return;
         }
+        String sourceLabel = "routing".equals(pickSource) ? "工艺工序" : "产品BOM";
+        String remark = "routing".equals(pickSource) ? "工单完工领料（工艺工序）" : "工单完工领料（产品BOM）";
+        applyPickDemand(demandItems, sourceLabel, remark, "work_order", workOrderId);
+    }
+
+    /** 工序开工领料：按该工序绑定物料扣减库存 */
+    @Transactional
+    public void pickForProcess(Long workOrderId, Long processRecordId, String remark,
+                               List<Map<String, Object>> demandItems) {
+        if (workOrderId == null || processRecordId == null || demandItems == null || demandItems.isEmpty()) {
+            return;
+        }
+        long existingPickCount = invTransactionMapper.selectCount(new LambdaQueryWrapper<InvTransaction>()
+                .eq(InvTransaction::getRefType, "process_record")
+                .eq(InvTransaction::getRefId, processRecordId)
+                .eq(InvTransaction::getTxnType, "pick"));
+        if (existingPickCount > 0) {
+            return;
+        }
+        String processLabel = StringUtils.hasText(remark) ? remark : "工序开工领料";
+        applyPickDemand(demandItems, processLabel, processLabel, "process_record", processRecordId);
+    }
+
+    public boolean hasPickActivity(Long workOrderId, java.util.Collection<Long> processRecordIds) {
+        if (workOrderId != null) {
+            long workOrderPicks = invTransactionMapper.selectCount(new LambdaQueryWrapper<InvTransaction>()
+                    .eq(InvTransaction::getRefType, "work_order")
+                    .eq(InvTransaction::getRefId, workOrderId)
+                    .eq(InvTransaction::getTxnType, "pick"));
+            if (workOrderPicks > 0) {
+                return true;
+            }
+        }
+        if (processRecordIds == null || processRecordIds.isEmpty()) {
+            return false;
+        }
+        return invTransactionMapper.selectCount(new LambdaQueryWrapper<InvTransaction>()
+                .eq(InvTransaction::getRefType, "process_record")
+                .in(InvTransaction::getRefId, processRecordIds)
+                .eq(InvTransaction::getTxnType, "pick")) > 0;
+    }
+
+    private void applyPickDemand(List<Map<String, Object>> demandItems, String sourceLabel, String remark,
+                                 String refType, Long refId) {
         for (Map<String, Object> item : demandItems) {
             Long materialId = ((Number) item.get("materialId")).longValue();
             BigDecimal requiredQty = new BigDecimal(item.get("requiredQty").toString());
@@ -206,13 +267,14 @@ public class MaterialService {
             BigDecimal beforeQty = material.getStockQty();
             BigDecimal afterQty = beforeQty.subtract(requiredQty);
             if (afterQty.compareTo(BigDecimal.ZERO) < 0) {
-                throw new BusinessException("物料「" + material.getMaterialName() + "」库存不足，无法完工领料");
+                throw new BusinessException("物料「" + material.getMaterialName() + "」库存不足，无法领料（按"
+                        + sourceLabel + "扣减，需 " + requiredQty.stripTrailingZeros().toPlainString()
+                        + "，当前库存 " + beforeQty.stripTrailingZeros().toPlainString() + "）");
             }
             material.setStockQty(afterQty);
             material.setAlertStatus(afterQty.compareTo(material.getSafetyStock()) < 0 ? "warning" : "normal");
             matMaterialMapper.updateById(material);
-            recordTransaction(materialId, "pick", requiredQty, beforeQty, afterQty,
-                    "work_order", workOrderId, "工单完工按BOM领料");
+            recordTransaction(materialId, "pick", requiredQty, beforeQty, afterQty, refType, refId, remark);
         }
     }
 

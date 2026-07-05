@@ -76,6 +76,12 @@ public class ProductController {
         return Result.ok(productService.getBom(id));
     }
 
+    @GetMapping("/{id}/transactions")
+    @SaCheckPermission("产品管理")
+    public Result<List<Map<String, Object>>> transactions(@PathVariable Long id) {
+        return Result.ok(productService.listTransactions(id));
+    }
+
     @PutMapping("/{id}/bom")
     @SaCheckPermission("产品管理")
     public Result<Map<String, Object>> saveBom(@PathVariable Long id, @RequestBody BomSaveRequest request) {

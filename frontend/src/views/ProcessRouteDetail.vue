@@ -176,7 +176,9 @@
 
     <!-- 参数 -->
     <el-dialog v-model="paramDialogVisible" :title="`工艺参数 - ${activeOperation?.operationName || ''}`" width="760px" append-to-body>
-      <el-button size="small" @click="addParameter">添加参数</el-button>
+      <div class="dialog-toolbar">
+        <el-button size="small" class="op-pill-btn btn-add" @click="addParameter">添加参数</el-button>
+      </div>
       <el-table :data="activeOperation?.parameters || []" border class="param-table">
         <el-table-column label="参数名" min-width="160" header-align="center"><template #default="{ row }"><el-input v-model="row.paramName" /></template></el-table-column>
         <el-table-column label="标准值" width="110" align="center"><template #default="{ row }"><el-input v-model="row.paramValue" /></template></el-table-column>
@@ -213,11 +215,19 @@
 
     <!-- 物料绑定 -->
     <el-dialog v-model="materialDialogVisible" :title="`物料绑定 - ${activeOperation?.operationName || ''}`" width="840px" append-to-body>
-      <el-button size="small" @click="addMaterialRow">添加物料</el-button>
+      <div class="dialog-toolbar">
+        <el-button size="small" class="op-pill-btn btn-add" @click="addMaterialRow">添加物料</el-button>
+      </div>
       <el-table :data="materialForm.rows" border class="param-table">
         <el-table-column label="物料" min-width="220" header-align="center">
           <template #default="{ row }">
-            <el-select v-model="row.materialId" placeholder="选择物料" class="full-width">
+            <el-select
+              v-model="row.materialId"
+              filterable
+              placeholder="选择物料"
+              class="full-width"
+              @change="(id: string | number) => onMaterialRowChange(row, id)"
+            >
               <el-option v-for="item in materialOptions" :key="item.id" :label="`${item.materialName} (${item.materialCode})`" :value="item.id" />
             </el-select>
           </template>
@@ -227,7 +237,11 @@
             <el-input-number v-model="row.qty" :min="0.0001" :step="0.1" :controls="false" class="full-width" />
           </template>
         </el-table-column>
-        <el-table-column label="单位" width="90" align="center"><template #default="{ row }"><el-input v-model="row.unit" /></template></el-table-column>
+        <el-table-column label="单位" width="90" align="center">
+          <template #default="{ row }">
+            <el-input v-model="row.unit" placeholder="自动带出" readonly />
+          </template>
+        </el-table-column>
         <el-table-column label="类型" width="130" align="center">
           <template #default="{ row }">
             <el-select v-model="row.materialType" class="full-width">
@@ -254,16 +268,24 @@
     <el-dialog v-model="sopDialogVisible" :title="`SOP - ${activeOperation?.operationName || ''}`" width="640px" append-to-body>
       <div v-if="!activeOperation?.id" class="sop-hint">请先保存工艺草稿后再上传 SOP</div>
       <template v-else>
-        <el-upload :show-file-list="false" :http-request="handleSopUpload" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.doc,.docx,.txt">
-          <el-button type="primary" plain :loading="sopUploading">上传 SOP</el-button>
-        </el-upload>
+        <div class="dialog-toolbar">
+          <el-upload :show-file-list="false" :http-request="handleSopUpload" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.doc,.docx,.txt">
+            <el-button size="small" class="op-pill-btn btn-add" :loading="sopUploading">上传 SOP</el-button>
+          </el-upload>
+        </div>
         <el-table :data="activeOperation?.sops || []" border class="param-table">
-          <el-table-column prop="fileName" label="文件名" min-width="160" />
-          <el-table-column label="类型" width="80"><template #default="{ row }">{{ row.fileType }}</template></el-table-column>
-          <el-table-column label="操作" width="140">
+          <el-table-column prop="fileName" label="文件名" min-width="160" header-align="center" />
+          <el-table-column label="类型" width="90" align="center">
             <template #default="{ row }">
-              <el-button link type="primary" @click="previewSop(row)">预览</el-button>
-              <el-button link type="danger" @click="removeSop(row)">删除</el-button>
+              <span class="sop-type-badge">{{ row.fileType }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="140" align="center">
+            <template #default="{ row }">
+              <div class="table-actions-flex">
+                <el-button size="small" class="op-pill-btn btn-sop" @click="previewSop(row)">预览</el-button>
+                <el-button size="small" class="op-pill-btn btn-delete" @click="removeSop(row)">删除</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -583,15 +605,25 @@ function saveDeviceBindings() {
 
 function editMaterials(row: ProcessOperation) {
   activeOperation.value = row
-  materialForm.rows = (row.materials ?? []).map((m) => ({
-    materialId: m.materialId,
-    qty: Number(m.qty ?? 1),
-    unit: m.unit ?? '',
-    materialType: m.materialType ?? 'raw',
-    remark: m.remark
-  }))
+  materialForm.rows = (row.materials ?? []).map((m) => {
+    const mat = materialOptions.value.find((item) => String(item.id) === String(m.materialId))
+    return {
+      materialId: m.materialId,
+      qty: Number(m.qty ?? 1),
+      unit: m.unit || mat?.unit || '',
+      materialType: m.materialType ?? 'raw',
+      remark: m.remark
+    }
+  })
   if (!materialForm.rows.length) addMaterialRow()
   materialDialogVisible.value = true
+}
+
+function onMaterialRowChange(row: { materialId: number | string; unit: string }, materialId: number | string) {
+  const material = materialOptions.value.find((m) => String(m.id) === String(materialId))
+  if (material?.unit) {
+    row.unit = material.unit
+  }
 }
 
 function addMaterialRow() {
@@ -1075,6 +1107,34 @@ onMounted(async () => {
 
 .op-pill-btn.btn-delete { color: #ef4444 !important; border-color: #fee2e2 !important; }
 .op-pill-btn.btn-delete:hover { background: #fee2e2 !important; color: #b91c1c !important; }
+
+.dialog-toolbar {
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.op-pill-btn.btn-add {
+  background: #0f172a !important;
+  color: #fff !important;
+  border-color: #0f172a !important;
+}
+.op-pill-btn.btn-add:hover {
+  background: #1e293b !important;
+  border-color: #1e293b !important;
+}
+
+.sop-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
 
 /* Premium capsule/pill inputs for all form fields and table cells */
 .view-page :deep(.el-input__wrapper) {

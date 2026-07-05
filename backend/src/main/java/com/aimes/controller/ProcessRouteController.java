@@ -50,6 +50,13 @@ public class ProcessRouteController {
         return Result.ok(processRouteService.getDefaultOperationNames());
     }
 
+    @GetMapping("/resolve")
+    @SaCheckPermission(value = {"生产计划", "工单管理", "工单反馈", "工序进度", "工艺管理", "系统配置"}, mode = SaMode.OR)
+    public Result<Map<String, Object>> resolveForProduct(@RequestParam(required = false) Long productId,
+                                                           @RequestParam(required = false) String productName) {
+        return Result.ok(processRouteService.resolveRouteForProduct(productId, productName));
+    }
+
     @GetMapping("/execution/{workOrderId}")
     @SaCheckPermission(value = {"工序进度", "工单反馈", "工单管理", "工艺管理", "系统配置"}, mode = SaMode.OR)
     public Result<Map<String, Object>> executionContext(@PathVariable Long workOrderId) {
